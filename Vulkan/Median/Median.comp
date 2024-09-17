@@ -1,0 +1,130 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+#define WORKGROUP_SIZE 32
+layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1 ) in;
+
+struct MedianArgs {
+    int nx;
+    int ny;
+    int npix;
+ };
+layout(std140,binding = 0) uniform paramBuf
+{
+   MedianArgs args;
+};
+
+layout(binding = 1) readonly buffer inBuf
+{
+   float inputImage[];
+};
+
+layout(binding = 2) buffer outBuf
+{
+   float outputImage[];
+};
+
+// Allow for values of Npix up to 11.
+
+#define NPIXSQ_MAX 121
+
+//  This finds the median value in the array X, without recursion,
+//  using a quickselect algorithm which partially sorts X.
+
+float CalcMedian(float X[NPIXSQ_MAX], uint len)
+{
+   #define swap(a,b) {float t = X[a]; X[a] = X[b], X[b] = t;}
+   uint left = 0, right = len - 1;
+   uint cent = len/2;
+   float pivot;
+   uint pos, i;
+   float median = 0.0;
+  
+   while (left < right) {
+      pivot = X[cent];
+      swap(cent, right);
+      for (i = pos = left; i < right; i++) {
+         if (X[i] < pivot) {
+            swap(i, pos);
+            pos++;
+         }
+      }
+      swap(right, pos);
+      if (pos == cent) break;
+      if (pos < cent) left = pos + 1;
+      else right = pos - 1;
+   }
+   median = X[cent];
+   
+   //  If the array has an odd number of elements, X[cent] will be the median
+   //  value, with all values greater than it in the upper partition and all
+   //  values less than it in the lower partition. (But no more sorted than that.)
+   //  If the array has an odd number of elements, we want the average of the two
+   //  central elements. X[cent] will be the higher of the two - remember that
+   //  the first element is X[0] - so we look for the highest value in the
+   //  lower part of the array and return the average of it and X[cent].
+    
+   if ((len % 2) == 0) {
+      float temp = X[cent - 1];
+      for (uint i = 0; i < cent - 1; i++) {
+         if (X[i] > temp) temp = X[i];
+      }
+      median = (median+temp)*0.5;
+   }
+
+   return median;
+}
+
+void main() {
+
+    uint ix = gl_GlobalInvocationID.x;
+    uint iy = gl_GlobalInvocationID.y;
+    uint nx = args.nx;
+    uint ny = args.ny;
+    uint npix = args.npix;
+
+    //  In order to fit the work into workgroups, some unnecessary threads are launched.
+    //  We terminate those threads here. (See programming notes below.)
+  
+    if (ix >= nx || iy >= ny) return;
+
+    //  Fill a work array with the input array elements in a box npix wide around the
+    //  target element. Allow for the edges of the image.
+  
+    while (npix * npix > NPIXSQ_MAX) npix--;
+    float work[NPIXSQ_MAX];
+    int npixby2 = int(npix) / 2;
+    int ixmin = int(ix) - npixby2;
+    int ixmax = int(ix) + npixby2;
+    int iymin = int(iy) - npixby2;
+    int iymax = int(iy) + npixby2;
+    if (ixmin < 0) ixmin = 0;
+    if (ixmax >= int(nx)) ixmax = int(nx - 1);
+    if (iymin < 0) iymin = 0;
+    if (iymax >= int(ny)) iymax = int(ny - 1);
+    uint ipix = 0;
+    for (int yind = iymin; yind <= iymax; yind++) {
+        for (int xind = ixmin; xind <= ixmax; xind++) {
+            work[ipix++] = inputImage[yind * nx + xind];
+        }
+    }
+    
+    float median = CalcMedian(work,ipix);
+    outputImage[nx * iy + ix] = median;
+}
+
+/*                               P r o g r a m m i n g   N o t e s
+
+    o   If the X dimension of the input and output arrays is not a multiple of the workgroup
+        size, you can't work out the value of Nx from the various gl_ values such as
+        gl_WorkGroupSize. You might think nx = gl_WorkGroupSize.x * gl_NumWorkGroups.x might
+        give you the right answer, but the gl_NumWorkGroups.x value tells you how many work groups
+        each of gl_WorkGroupSize.x were needed to allow for Nx values in X, but it doesn't tell
+        you how many elements of the last work group are just padding and don't correspond to an
+        actual pixel in the arrays. If Nx = 2047, then gl_WorkGroupSize.x will be 32 and
+        gl_NumWorkGroups.x will be 64, and because 64*32 = 2048, you will get an invocation
+        of the GPU code with gl_GlobalInvocationID.x 2048 for each line in the arrays.
+        So you really have to pass Nx,Ny as parameters in the uniform parameter buffer. You
+        don't need this in the Metal version, but only because later Metal versions allow for
+        this and don't invoke the GPU code for the 'padding' elements.
+*/

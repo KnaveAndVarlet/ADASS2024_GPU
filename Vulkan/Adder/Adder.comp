@@ -1,0 +1,60 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+#define WORKGROUP_SIZE 32
+layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1 ) in;
+
+struct AdderArgs {
+    int nx;
+    int ny;
+ };
+layout(std140,binding = 0) uniform paramBuf
+{
+   AdderArgs args;
+};
+
+layout(binding = 1) readonly buffer inBuf
+{
+   float inputData[];
+};
+
+layout(binding = 2) buffer outBuf
+{
+   float outputData[];
+};
+
+void main() {
+
+    uint ix = gl_GlobalInvocationID.x;
+    uint iy = gl_GlobalInvocationID.y;
+    uint nx = args.nx;
+    uint ny = args.ny;
+
+    //  In order to fit the work into workgroups, some unnecessary threads are launched.
+    //  We terminate those threads here. (See programming notes beloe.)
+  
+    if (ix >= nx || iy >= ny) return;
+
+    //  The calculation performed is very simple - we add ix+iy to each input element of
+    //  the array and store it in the output array. Note we have to work out the index into
+    //  the buffer - we can't access it as an element of a 2D array.
+    
+    uint index = iy * nx + ix;
+    outputData[index] = inputData[index] + ix + iy;
+}
+
+/*                               P r o g r a m m i n g   N o t e s
+
+    o   If the X dimension of the input and output arrays is not a multiple of the workgroup
+        size, you can't work out the value of Nx from the various gl_ values such as
+        gl_WorkGroupSize. You might think nx = gl_WorkGroupSize.x * gl_NumWorkGroups.x might
+        give you the right answer, but the gl_NumWorkGroups.x value tells you how many work groups
+        each of gl_WorkGroupSize.x were needed to allow for Nx values in X, but it doesn't tell
+        you how many elements of the last work group are just padding and don't correspond to an
+        actual pixel in the arrays. If Nx = 2047, then gl_WorkGroupSize.x will be 32 and
+        gl_NumWorkGroups.x will be 64, and because 64*32 = 2048, you will get an invocation
+        of the GPU code with gl_GlobalInvocationID.x 2048 for each line in the arrays.
+        So you really have to pass Nx,Ny as parameters in the uniform parameter buffer. You
+        don't need this in the Metal version, but only because later Metal versions allow for
+        this and don't invoke the GPU code for the 'padding' elements.
+*/

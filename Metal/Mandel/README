@@ -1,0 +1,156 @@
+
+                         M a n d e l
+                      
+This is a GPU demonstration program based on the Mandelbrot Set.
+It is intended to be an example of a program that uses the GPU
+for both computation (the Mandelbrot set is computationally
+intensive) and display, programmed using Apple's Metal framework.
+
+              B u i l d i n g  t h e  P r o g r a m
+              
+This should build on any recent OS X Mac that has the XCode
+program development system installed, together with its command
+line utilities.
+
+If you don't have XCode installed, download it from the App Store.
+The command line utilities are not installed by default, but if
+you don't have them and you give a command like 'clang' from the
+terminal, you should get a prompt asking if you want to install
+them. Alternatively, you can install them directly from the
+terminal using the command 'xcode-select --install'.
+
+You should then be able to build this program from the terminal
+just by typing 'make'.
+
+             R u n n i n g  t h e  P r o g r a m
+             
+That should build an executable called 'Mandel', and you can then
+run it just by typing './Mandel &'.
+
+                  W h a t  y o u  s e e
+                  
+Once it starts, you should see a window with a display of the
+Mandelbrot set. If you're not familiar with it, you can look it
+up in Google. Wikipedia has a good article about it. The main
+thing is that generating this diagram requires a lot of calculation,
+and it used to be a popular benchmark. The shape has fascinating
+properties. The boundary of the Mandelbrot set is infinitely long,
+and the more you zoom in on it the more complex it gets.
+
+This isn't the place to explain the Mandelbrot set in detail. When
+you start up the program, you're seeing a 2D coordinate space. Each
+point in that continuous coordinate space has an X and Y value,
+and there is a calculation that can be carried out at each point
+based on those X,Y values. That generates a new pair of values and
+the same calculation can be repeated. And so on, and so on. If the
+sequence of values does not converge, then that original X,Y
+position is part of the Mandelbrot Set. In the diagram you see,
+anything black is a position in the set, anything coloured is
+outside it. The colour depends on the number of iterations it
+took before it was clear the value was not going to converge.
+
+Obviously, the program could loop indefinitely repeating the
+calculation for a point that isn't ever going to diverge. Instead
+it sets a limit on the number of iterations it will try. By
+default, this is 1000. So for each point in the image that's black,
+the program has repeated the calculation it does 1000 times. The
+program is displaying a 1024 by 1024 image, so it's sampling the
+coordinate space 1024*1024 times. And it will have repeated its
+calculation up to 1024 times for each point. That's why this is
+computationally intensive.
+
+    I n t e r a c t i n g  w i t h  t h e  P r o g r a m
+    
+You can put the cursor at any point in the image - try somewhere
+near the edge of the black area - and zoom in and out by scrolling.
+When you zoom in, the window is covering a smaller part of the
+coordinate space, each of those 1024 by 1024 points now has new
+coordinates, and the program has to repeat the calculation, up to
+1024 times for each point. Then it redisplays the resulting image.
+The fact that it can do this quickly enough shows the power of the
+GPU in your laptop.
+
+You can change the window size by dragging the edges or corners,
+and you can put it into full screen mode. You can close it using
+the window's red close button, with command-q or using the menu's
+'Quit' option. (Which is the only menu option, by the way.)
+
+All other interaction with the program is by pressing one of a
+limited set of keyboard keys. (The point of the program is to show
+what a GPU can do, not to provide a fancy user interface. Keys
+are easy to program.)
+
+Some points in the set are more interesting than others. If you
+press any of the numeric keys '0' through '9', you get taken to
+a preset center position and zoom level that is reasonably
+interesting. Try them. Go to one and then scroll in or out.
+
+If you press 'I' the program zooms in for as long as you hold the
+key down. When you release it, it tells you how many frames the
+program calculated in the course of that zoom, and gives a figure
+for frames/sec. This lets you see how fast the program is able to
+caclulate and display a new frame. Areas with a lot of black take
+longer to calculate than lighter coloured areas - the program
+only has to go to the full 1024 iterations for those black pixels.
+Pressing 'O' and holding it down zooms out. 'Z' zooms in for 10
+seconds and then out for 10 seconds.
+
+The window's title bar shows the current zoom level. It also shows
+whether the computation is being done using the GPU or the CPU. If
+the GPU supports double precision (Mac GPUs don't) it shows if this
+is being used. If the zoom level is too high for the precision
+being used, this is indicated using asterisks. The CPU always uses
+double precision (single gives no speed gain on most modern CPUs).
+By default, the program uses the GPU unless it needs double
+precision and the GPU doesn't support it, in which case it switches
+to the CPU. You can force CPU mode using the 'C' key, and can force
+GPU mode using the 'G' key, and go back to the automatic CPU/GPU
+switching using the 'A' key.
+
+The 'H' key gives a list of the various key options.
+
+By default, the program computes an image with 1024 by 1024
+resolution. The 'L','M','S' and 'T' keys will select different
+resoultions - large, medium, small and tiny (2048x2048,
+1024x1024,512x512, and 128x128 respectively). Higher resolutions
+involve more computation, obviously.
+
+The '9' key selects a centre position and zoom value quite close
+to the point where the program will switch automatically from
+GPU to CPU. Try pressing '9' and then hold 'I' down until the
+window title shows the program has switched to the CPU. You'll
+see a summary of the compute times from the GPU and from the CPU.
+This should show how much faster the GPU is that the CPU (and the
+program uses all the CPU cores the machine has available). This
+will be less obvious in the display, because the program
+compensates for the time the CPU takes by increasing the amount
+each frame is zoomed. The result is a zoom that seems as fast
+as that with the GPU, but jerkier. This compensation can be toggled
+on and off with the 'W' key. Turning it off makes the difference
+between CPU and GPU more obvious. Going to a position with more
+black pixels also makes it more obvious.
+
+                   K e y  E f f e c t s
+
+'0'..'9' select pre-determined settings for centre point and
+    magnification.
+'r' resets the display to its starting point
+'i' hold down the 'i' key to zoom in
+'o' hold down the 'o' key to zoom out
+'z' does a zoom test. It zooms in for 5 seconds, then out for 5
+    seconds
+'a' sets auto mode - the program uses the GPU so long as single
+    precision floating point is accurate enough.
+'c' forces the program to use the CPU - all available cores.
+'g' forces the program to use the GPU. This gets pixilated at
+    magnifications above about 100,000, where single precision
+    floating point errors can be seen.
+    (Above about 100 trillion even double precision has problems.)
+'w' toggles magnification rate compensation for slow compute times
+    during zoom
+'l' sets size of images to 2048 by 2048 (large)
+'m' sets size of images to 1024 by 1024 (medium - default)
+'s' sets size of images to 512 by 512 (small)
+'t' sets size of images to 128 by 128 (tiny)
+
+Any problems, e-mail keith@knaveandvarlet.com.au

@@ -1,0 +1,110 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+#define WORKGROUP_SIZE 32
+layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1 ) in;
+
+//  This structure is used to pass the arguments that the GPU code needs. Note that it has both
+//  single and double precision versions of the xCent,yCent,dX and dY parameters, the double
+//  versions being added at the end. This allows both the single and double versions of this
+//  code to use the same argument structure - the single version simply ignores the double
+//  versions, which allows it to compile even for systems that don't support a double type.
+//  This double version ignores the single precision versions.
+
+struct MandelArgs {
+    float xCentS;       // X center of the image in Mandelbrot coordinates.
+    float yCentS;       // Y center of the image in Mandelbrot coordinates.
+    float dXS;          // Change in X coordinate value over one image pixel.
+    float dyS;          // Change in Y coordinate value over one image pixel.
+    int iter;           // Maximum number of iterations to use.
+    int nx;             // Number of image pixels in X.
+    int ny;             // Number of image pixels in Y.
+    int padding;        // To align the double precision values properly.
+    double xCent;       // X center of the image in Mandelbrot coordinates.
+    double yCent;       // Y center of the image in Mandelbrot coordinates.
+    double dX;          // Change in X coordinate value over one image pixel.
+    double dY;          // Change in Y coordinate value over one image pixel.
+};
+
+//  The code expects to have a copy of the argument structure as a uniform with binding 1.
+
+layout(std140, binding = 1) uniform buf1
+{
+   MandelArgs args;
+};
+
+//  And it expects a buffer into which it can write the calculated image at binding 0.
+
+//  (Be careful with layout std140 - it forces alignment in ways you might not expect. If you use
+//  it for the float array it will assume all elements are 16 bytes apart - basically forcing an
+//  alignment suitable for vec4 quantities, but not for floats.)
+
+layout(binding = 0) buffer buf
+{
+   float imageData[];
+};
+
+void main() {
+
+    // In order to fit the work into workgroups, some unnecessary threads are launched.
+    // We terminate those threads here.
+  
+    if (gl_GlobalInvocationID.x >= args.nx || gl_GlobalInvocationID.y >= args.ny) return;
+
+    //  This code calculates the value for the image for one pixel, with X,Y index values
+    //  given by the global invocation ID values. We work out the coordinates for this
+    //  pixel in Mandelbrot coordinates.
+    
+    double gridXcent = args.nx * 0.5;
+    double gridYcent = args.ny * 0.5;
+    double x0 = args.xCent + (double(gl_GlobalInvocationID.x) - gridXcent) * args.dX;
+    double y0 = args.yCent + (double(gl_GlobalInvocationID.y) - gridYcent) * args.dY;
+
+    //  Now we do the actual calculation. What we want are the number of iterations before
+    //  it becomes obvious that the calculation is going to diverge.
+    
+    double x = 0.0;
+    double y = 0.0;
+    int n = 0;
+    const int maxIter = args.iter;
+
+    dvec2 c = dvec2(x0,y0);
+    dvec2 z = dvec2(0.0,0.0);
+    for (int i = 0; i < maxIter; i++) {
+        n++;
+        z = dvec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        if (dot(z,z) > 4.0) break;
+    }
+  
+    //  The display looks better if the values that are in the Mandelbrot set - the ones where
+    //  the calculation does not diverge, and so have gone through the maximum number of iterations
+    //  are shown as black, an effect we get by setting them to zero. All other pixels will have
+    //  n in the range 1..maxIter.
+    
+    if (n >= maxIter) n = 0;
+
+    //  Now store the resulting value in the 2D image - note we have to calculate the offset
+    //  into the output buffer for ourselves, treating it as a 1D array.
+    
+    imageData[args.nx * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x] = n;
+                   
+}
+
+/*                             P r o g r a m m i n g   N o t e s
+
+    o   This is an alternative version of the code snippet that performs the Mandelbrot calculation.
+        The version used above uses X,Y vector quantities and is closer to the way the code might
+        be written in a language that supported complex data types - the Mandelbrot set is usually
+        described in terms of complex numbers. You may find one clearer than the other. Both work,
+        and the times seem to be essentially the same. This code is much closer to the version used
+        by the CPU.
+        
+        double xtmp = 0.0;
+        while (((x * x) + (y * y) <= 4.0) && (n < maxIter)) {
+            xtmp = (x + y) * (x - y) + x0;
+            y = (2.0 * x * y) + y0;
+            x = xtmp;
+            n += 1;
+        }
+*/
+
