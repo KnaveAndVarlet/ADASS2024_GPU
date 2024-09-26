@@ -80,6 +80,8 @@
 //      12th Sep 2024. Changed 'File' default to blank, and now doesn't try to write out
 //                     a result file if one wasn't specified. KS.
 //      14th Sep 2024. Modified following renaming of Framework routines and types. KS.
+//      24th Sep 2024. Added include of string.h for systems that need it. Fixed minor issue
+//                     with error reporting when closing a FITS file. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -105,6 +107,10 @@
 //  FITS file access uses the cfitsio library.
 
 #include "fitsio.h"
+
+//  Required on some systems for strncpy().
+
+#include <string.h>
 
 //  This provides a global Debug Handler that all the routines here can use.
 
@@ -907,10 +913,13 @@ bool WriteFitsFile(int Nx,int Ny,MedianDetails* Details)
     
     //  Close the file (clearing Details->Fptr so Shutdown() won't try to close it twice),
     //  and summarise the final status. (If something has gone wrong, Status will be non-zero.)
-    //  Note that fits_close_file() will close the file even if passed non-zero status.
+    //  Note that fits_close_file() will close the file even if passed non-zero status, but we
+    //  don't want to modify Error if it already has a description of an earlier error.
     
     int CloseStatus = 0;
-    if (Fptr && fits_close_file(Fptr,&CloseStatus)) fits_get_errstatus (CloseStatus,Error);
+    if (Fptr && fits_close_file(Fptr,&CloseStatus)) {
+        if (Status == 0) fits_get_errstatus (CloseStatus,Error);
+    }
     Details->Fptr = nullptr;
     if (TheDebugHandler.Active("Fits")) {
         if (Status) TheDebugHandler.Logf("Fits","Error writing to FITS file: %s",Error);
