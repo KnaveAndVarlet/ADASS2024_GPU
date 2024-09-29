@@ -50,7 +50,7 @@ KVVulkanFramework.o : KVVulkanFramework.cpp KVVulkanFramework.h \
 	c++ -c -Wall -std=c++17 KVVulkanFramework.cpp
 
 Adder.spv : Adder.comp
-	glslc Adder.comp -O -o Adder.spv
+	glslc Adder.comp -Os -o Adder.spv
 
 clean :
 	@rm -f Adder Adder.spv $(OBJ_FILES)

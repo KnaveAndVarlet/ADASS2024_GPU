@@ -56,7 +56,7 @@ KVVulkanFramework.o : KVVulkanFramework.cpp KVVulkanFramework.h \
 	c++ -c -Wall -std=c++17 KVVulkanFramework.cpp
 
 Median.spv : Median.comp
-	glslc Median.comp -O -o Median.spv
+	glslc Median.comp -Os -o Median.spv
 
 clean :
 	@rm -f Median Median.spv $(OBJ_FILES) Median_*.fits

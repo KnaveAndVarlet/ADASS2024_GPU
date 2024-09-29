@@ -55,7 +55,7 @@ ReadFilename.o : ReadFilename.cpp ReadFilename.h
 	clang++ -c -Wall -ansi -pedantic -std=c++17 ReadFilename.cpp
 
 Compute.metallib : Adder.metal
-	xcrun -sdk macosx metal -c Adder.metal -o Adder.air
+	xcrun -sdk macosx metal -c -Ofast Adder.metal -o Adder.air
 	xcrun -sdk macosx metallib Adder.air -o Compute.metallib
 
 clean :

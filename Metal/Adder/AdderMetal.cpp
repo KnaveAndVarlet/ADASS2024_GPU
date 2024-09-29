@@ -85,6 +85,7 @@
 //       2nd Sep 2024. Re-ordered some of the GPU setup and diagnostics to better match the
 //                     Vulkan version. KS.
 //      10th Sep 2024. Further slight tweaks to disgnostics. KS.
+//      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -435,10 +436,16 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt)
         //  Check that we got it right, and if so report on the timing.
         
         float Msec = ComputeTimer.ElapsedMsec();
-        if (CheckResults(InputArray,Nx,Ny,OutputArray)) {
-            printf ("GPU completed OK.\n");
+        if (Nrpt <= 0) {
+            printf ("No values computed using GPU, as number of repeats set to zero.\n");
+        } else {
             printf ("GPU took %.3f msec\n",Msec);
-            printf ("Average msec per iteration for GPU = %.3f\n\n",Msec / float(Nrpt));
+            printf ("Average msec per iteration for GPU = %.3f\n",Msec / float(Nrpt));
+            if (CheckResults(InputArray,Nx,Ny,OutputArray)) {
+                printf ("GPU completed OK, all values computed as expected.\n\n");
+            } else {
+                printf ("** GPU completes, but with errors **\n\n");
+            }
         }
                         
         //  Release the arrays used to hold the row addresses for the two arrays.
@@ -580,11 +587,13 @@ void ComputeUsingCPU(int Threads,int Nx,int Ny,int Nrpt)
     if (Nrpt <= 0) {
         printf ("No values computed using CPU, as number of repeats set to zero.\n");
     } else {
+        printf ("CPU took %.3f msec\n",Msec);
+        printf ("Average msec per iteration for CPU = %.3f (%d thread(s))\n",
+                                                             Msec / float(Nrpt),Threads);
         if (CheckResults(InputArray,Nx,Ny,OutputArray)) {
-            printf ("CPU completed OK, all values computed as expected.\n");
-            printf ("CPU took %.3f msec\n",Msec);
-            printf ("Average msec per iteration for CPU = %.3f (%d thread(s))\n\n",
-                    Msec / float(Nrpt),Threads);
+            printf ("CPU completed OK, all values computed as expected.\n\n");
+        } else {
+            printf ("** CPU completes, but with errors **\n\n");
         }
     }
     

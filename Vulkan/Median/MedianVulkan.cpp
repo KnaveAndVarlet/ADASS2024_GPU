@@ -82,6 +82,7 @@
 //      14th Sep 2024. Modified following renaming of Framework routines and types. KS.
 //      24th Sep 2024. Added include of string.h for systems that need it. Fixed minor issue
 //                     with error reporting when closing a FITS file. KS.
+//      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -576,23 +577,22 @@ void ComputeUsingGPU(int Nx,int Ny,int Npix,int Nrpt,bool Validate,const std::st
         if (!StatusOK) break;
     }
     
-    //  Check that we got it right, and if so report on the timing.
-    
+    //  Report on the timing, and check that we got it right.
+
     if (StatusOK) {
         float Msec = ComputeTimer.ElapsedMsec();
+        printf ("GPU took %.3f msec\n",Msec);
+        printf ("Average msec per iteration for GPU = %.3f\n",Msec / float(Nrpt));
         bool FromGPU = true;
         if (Nrpt <= 0) {
             printf ("No values computed using GPU, as number of repeats set to zero.\n");
         } else {
-            if (NoteResults(OutputArray,FromGPU,Nx,Ny,Details)) {
-                printf ("GPU completed OK, all values computed as expected.\n");
-                printf ("GPU took %.3f msec\n",Msec);
-                printf ("Average msec per iteration for GPU = %.3f\n\n",Msec / float(Nrpt));
-            }
+            NoteResults(OutputArray,FromGPU,Nx,Ny,Details);
         }
     } else {
         if (Nrpt > 0) printf ("GPU execution failed.\n");
     }
+    printf ("\n");
 
     //  Release the arrays used to hold the row addresses for the two arrays.
     
@@ -674,20 +674,19 @@ void ComputeUsingCPU(int Threads,int Nx,int Ny,int Npix,int Nrpt,MedianDetails* 
         Threads = OnePassUsingCPU(Threads,InputArray,Nx,Ny,Npix,OutputArray);
     }
     
-    //  Report on results, and on timing.
-    
+    //  Report on the timing, and check that we got it right.
+
     float Msec = LoopTimer.ElapsedMsec();
+    printf ("CPU took %.3f msec\n",Msec);
+    printf ("Average msec per iteration for CPU = %.3f (threads = %d)\n",
+                                                           Msec / float(Nrpt),Threads);
     bool FromGPU = false;
     if (Nrpt <= 0) {
         printf ("No values computed using CPU, as number of repeats set to zero.\n");
     } else {
-        if (NoteResults(OutputArray,FromGPU,Nx,Ny,Details)) {
-            printf ("CPU completed OK.\n");
-            printf ("CPU took %.3f msec\n",Msec);
-            printf ("Average msec per iteration for CPU = %.3f (threads = %d)\n\n",
-                    Msec / float(Nrpt),Threads);
-        }
+        NoteResults(OutputArray,FromGPU,Nx,Ny,Details);
     }
+    printf ("\n");
     
     //  Release the arrays used to hold the row addresses for the two arrays, and the array
     //  data.

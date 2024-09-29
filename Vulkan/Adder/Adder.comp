@@ -1,27 +1,32 @@
+//
+//                               A d d e r . c o m p
+//
+//  The compute shader code for the Vulkan version of the Adder GPU example program. The GPU is
+//  passed two 2D arrays, one input and one output. It sets each element of the output array
+//  to the value of the corresponding element of the input array plus the sum of its row and
+//  column index values. It is also passed a uniform array with additional information it needs,
+//  in this case the X and Y dimensions of the array.
+
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
+//  The size used by the workgroup has to match that used by the C++ code in AdderVulkan.cpp
+
 #define WORKGROUP_SIZE 32
 layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1 ) in;
+
+//  Defines the layout of the uniform buffer that gives the array size.
 
 struct AdderArgs {
     int nx;
     int ny;
  };
-layout(std140,binding = 0) uniform paramBuf
-{
-   AdderArgs args;
-};
+layout(std140,binding = 0) uniform paramBuf { AdderArgs args; };
 
-layout(binding = 1) readonly buffer inBuf
-{
-   float inputData[];
-};
+//  Input and output buffers.
 
-layout(binding = 2) buffer outBuf
-{
-   float outputData[];
-};
+layout(binding = 1) readonly buffer inBuf { float inputData[]; };
+layout(binding = 2) writeonly buffer outBuf { float outputData[]; };
 
 void main() {
 

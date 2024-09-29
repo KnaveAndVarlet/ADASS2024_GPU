@@ -58,7 +58,7 @@ ReadFilename.o : ReadFilename.cpp ReadFilename.h
 	clang++ -c -Wall -ansi -pedantic -std=c++17 ReadFilename.cpp
 
 Compute.metallib : Median.metal
-	xcrun -sdk macosx metal -c -O3 Median.metal -o Median.air
+	xcrun -sdk macosx metal -c -Ofast Median.metal -o Median.air
 	xcrun -sdk macosx metallib Median.air -o Compute.metallib
 
 clean :
