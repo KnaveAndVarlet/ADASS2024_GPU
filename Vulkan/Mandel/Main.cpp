@@ -41,6 +41,7 @@
 //       5th Sep 2024. Split MouseCallback() into the two routines MouseButtonCallback() and
 //                     MouseMovedCallback(). KS.
 //      14th Sep 2024. Modified following renaming of Framework routines and types. KS.
+//      29th Sep 2024. Now ignores key presses outside the 'ordinary' character range. KS.
 
 #include "WindowHandler.h"
 #include "MandelController.h"
@@ -98,14 +99,22 @@ void DrawCallback(void* UserData)
 
 void KeyCallback(int Key,int Scancode,int Action,int Mods,double Xpos,double Ypos,void* UserData)
 {
-    MandelController* ControllerPtr = (MandelController*)UserData;
-    char KeyString[2];
-    char KeyChar = static_cast<char>(Key);
-    if (isupper(KeyChar)) KeyChar = tolower(KeyChar);
-    KeyString[0] = KeyChar;
-    KeyString[1] = 0;
-    if (Action == GLFW_PRESS) ControllerPtr->KeyDown (KeyString,Mods,float(Xpos),float(Ypos));
-    if (Action == GLFW_RELEASE) ControllerPtr->KeyUp (KeyString,Mods,float(Xpos),float(Ypos));
+    //  The GLFW scancodes are numeric values assigned to all the keys. If the key is an
+    //  ordinary character ('a'..'z', 'A'..'Z' then the GLFW key value is the ASCII code for
+    //  the key. But other keys, such as CTRL, or OPTION, or COMMAND generate larger numbers.
+    //  We're only interested in ordinary characters at the moment. This could be cleverer,
+    //  but it works so long as the Controller is happy with this character range.
+    
+    if (Key >= GLFW_KEY_SPACE && Key <= GLFW_KEY_Z) {
+        MandelController* ControllerPtr = (MandelController*)UserData;
+        char KeyString[2];
+        char KeyChar = static_cast<char>(Key);
+        if (isupper(KeyChar)) KeyChar = tolower(KeyChar);
+        KeyString[0] = KeyChar;
+        KeyString[1] = 0;
+        if (Action == GLFW_PRESS) ControllerPtr->KeyDown (KeyString,Mods,float(Xpos),float(Ypos));
+        if (Action == GLFW_RELEASE) ControllerPtr->KeyUp (KeyString,Mods,float(Xpos),float(Ypos));
+    }
 }
 
 void ResizeCallback(double Width,double Height,void* UserData)
