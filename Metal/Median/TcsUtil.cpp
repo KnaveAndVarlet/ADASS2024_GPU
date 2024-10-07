@@ -34,6 +34,9 @@
 //     17th Jan 2011. Include string.h and stdio.h. Needed from GCC 4.4.2. TJF.
 //     16th Feb 2015. Include stdlib.h. Now needed for getenv() at atof(). KS.
 //      5th Jun 2024. Replaced use of sprintf() by snprintf(). KS.
+//      3rd Oct 2024. Split off Unix-specific routines to allow the rest
+//                    (mostly string-processing routines) to be used under
+//                    other systems like Windows. KS.
 //
 //    Copyright (c)  Anglo-Australian Telescope Board, 2005-2024.
 //    Permission granted for use for non-commercial purposes.
@@ -43,19 +46,11 @@ static void *use_rcsId = (0 ? (void *)(&use_rcsId) : (void *) &rcsId);
 
 #include "TcsUtil.h"
 
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <errno.h>
 #include <math.h>
 #include <algorithm>
 #include <vector>
-#include <strings.h>
 #include <ctype.h>
-#include <sched.h>
-#include <sys/mman.h>
-#include <sys/utsname.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,26 +62,6 @@ using std::vector;
 #undef DEBUG
 #endif
 #define DEBUG printf
-
-// -----------------------------------------------------------------------------
-
-//                         G e t  E r r n o  T e x t
-/*!
- *   GetErrnoText() returns a string containing a description of the
- *   current errno value. The idea is that it can be used to help generate
- *   a message describing just what happened when a system routine returns
- *   bad status.
- *
- *   \return A string describing the current errno value.
- *
- *   \author Keith Shortridge, AAO.
- */
- 
-string TcsUtil::GetErrnoText (void)
-{   
-   string ErrnoString = strerror(errno);
-   return ErrnoString;
-}
 
 // -----------------------------------------------------------------------------
 
@@ -213,272 +188,6 @@ string TcsUtil::FormatUlonglong (
    string FormattedString = Number;
    return FormattedString;
 }
-
-// -----------------------------------------------------------------------------
-
-//                         T r a n s i e n t  E r r o r
-/*!
- *   Many system calls can return prematurely, usually because they have
- *   been interrupted by a signal. In some cases, they can just be
- *   called again. TransientError() checks the current errno value to see
- *   if is a value such as EAGAIN or EINTR which indicates that a system
- *   routine can be retried. So this should be used when a system routine
- *   returns a -1 value. If TransientError() returns true, retry the system
- *   call.
- *
- *   \return True if the erroring system call can be retried.
- *
- *   \author Keith Shortridge, AAO.
- */
- 
-bool TcsUtil::TransientError (void)
-{
-   return ((errno == EAGAIN) || (errno == EINTR));
-}
-
-// -----------------------------------------------------------------------------
-
-//                     R e a d  S o c k e t  D a t a
-/*!
- *   Reading from a socket requires slightly more than just issuing a
- *   read() call for the given file descriptor. Socket reads can be
- *   interrupted and need to be retried, and if a socket is set non-
- *   blocking the fact that a select() call shows that data is available
- *   does not prove that all the data is ready - a read may not
- *   get all the data in this case. This routine handles these various
- *   considerations. It will read the required amount of data from the
- *   specified socket, even if the socket is non-blocking. Note that
- *   this means that this routine effectively blocks until all the data
- *   is available, so this should not be used if a number of sockets
- *   are being monitored unless you are confident that delaying to read
- *   all the data from one socket as soon as it shows as readable is
- *   not going to be a problem. (If it is, you need a much more complex
- *   scheme.) 
- *
- *   \param  SocketFd    Gives the file descriptor open on the socket.
- *   \param  Buffer      The address of the buffer into which data is to
- *                       be read.
- *   \param  Bytes       The number of bytes to be read. Do not just pass
- *                       the size of the buffer, unless the buffer really is
- *                       to be filled, as this routine keeps reading until
- *                       it has read all of the specified byte count.
- *   \param  TimeoutMsec A timeout value in milliseconds. If the specified
- *                       number of bytes have not been read in this time,
- *                       this routine returns an error value of -1. If a 
- *                       timeout of zero is specified, the routine waits
- *                       indefinitely.
- *   \param  ErrorText   A string left unchanged unless there is an error. If
- *                       an error occurs, ErrorText is set to a description
- *                       of the error.
- *
- *   \return The number of bytes read, if all went well (which will always
- *           be equal to the Bytes argument). If an error occurs, -1 is
- *           returned.
- *
- *   \author Keith Shortridge, AAO.
- */
-
-int TcsUtil::ReadSocketData (           // Returns bytes read, or -1
-   int SocketFd,                        // Socket file descriptor
-   char* Buffer,                        // Data buffer
-   unsigned int Bytes,                  // Number of bytes to read
-   unsigned int TimeoutMsec,            // Timeout in msec. (0 => indefinite)
-   std::string& ErrorText)              // Unchanged except on error
-{
-   unsigned int BytesToRead = Bytes;
-   char* BufferPtr = Buffer;
-   int ReturnValue = Bytes;
-
-   //  This code assumes that the socket is set non-blocking, in which
-   //  case we may need to repeat the read until we get all the data we
-   //  want. (Which means the timeout applies to each read separately.)
-   //  If the socket is blocking, the effect will be that we wait until
-   //  some data is available, but then assume that we can read all the 
-   //  specified data.
-    
-   while (BytesToRead > 0) {
-   
-      if (TimeoutMsec > 0) {
-      
-         //  A timeout was specified, so use select() to wait for data to
-         //  be ready on the socket. This allows a timeout to be supplied.
-         
-         fd_set TestDescriptors;               // Used to test file descriptors
-         struct timeval Timeout;
-         bool DataReady = false;
-         FD_ZERO(&TestDescriptors);
-         FD_SET(SocketFd,&TestDescriptors);
-         Timeout.tv_sec = TimeoutMsec / 1000;
-         Timeout.tv_usec = (TimeoutMsec % 1000) * 1000;
-         
-         //  This loop, potentially repeating the select call, allows for the
-         //  possibility that select() is interrupted. We come out of it
-         //  either on a non-transient error or when data is ready.
-         
-         while (!DataReady) {
-            int Status = select(SocketFd + 1,
-                                 &TestDescriptors,NULL,NULL,&Timeout);
-            if (Status == 0) {
-               ErrorText = "Timeout error waiting to read from socket fd "
-                                                      + FormatInt(SocketFd);
-               break;
-            } else if (Status < 0) {
-               if (!TransientError()) {
-                  ErrorText = "Select error waiting to read from socket fd "
-                                                      + FormatInt(SocketFd);
-                  break;
-               }
-            } else {
-               DataReady = true;
-            }
-         }
-         
-         //  If data wasn't ready, then we've had an error or timeout.
-         
-         if (!DataReady) {
-            ReturnValue = -1;
-            break;
-         }
-      }
-      
-      //  Now read as much of the data as we have available.
-      
-      int BytesRead = read (SocketFd,BufferPtr,BytesToRead);
-      if (BytesRead == 0) {
-         ErrorText = "End of file on socket fd " + FormatInt(SocketFd);
-         ReturnValue = -1;
-         break;
-      } else if (BytesRead < 0) {
-         if (TransientError()) {
-            BytesRead = 0;
-         } else {
-            ErrorText = "Error reading " + FormatUint(BytesToRead) +
-                      " bytes from socket fd " + FormatInt(SocketFd);
-            ReturnValue = -1;
-            break;
-         }
-      }
-      BytesToRead -= BytesRead;
-      BufferPtr += BytesRead;
-   }
-   return ReturnValue;  
-}
-
-// -----------------------------------------------------------------------------
-
-//                     W r i t e  S o c k e t  D a t a
-/*!
- *   Writing to a socket needs to allow for the possibility that
- *   a write() call will be interrupted and need to be retried, and
- *   even for the possibility that a single write() call may not
- *   transfer all the data. This routine handles these considerations,
- *   writing the specified data to the socket and only returning when
- *   all the data has been written. (Note that this is not the same as
- *   a guarantee that it has been received, only that it has been
- *   written to the socket.)
- *
- *   \param  SocketFd    Gives the file descriptor open on the socket.
- *   \param  Buffer      The address of the buffer from which data is to
- *                       be written.
- *   \param  Bytes       The number of bytes to be written.
- *   \param  ErrorText   A string left unchanged unless there is an error. If
- *                       an error occurs, ErrorText is set to a description
- *                       of the error.
- *
- *   \return The number of bytes written, if all went well (which will always
- *           be equal to the Bytes argument). If an error occurs, -1 is
- *           returned.
- *
- *   \author Keith Shortridge, AAO.
- */
- 
-int TcsUtil::WriteSocketData (          // Returns bytes written, or -1
-   int SocketFd,                        // Socket file descriptor
-   const char* Buffer,                  // Data buffer
-   unsigned int Bytes,                  // Number of bytes to write
-   std::string& ErrorText)              // Unchanged except on error
-{
-   unsigned int BytesToWrite = Bytes;
-   const char* BufferPtr = Buffer;
-   int ReturnValue = Bytes;
-   
-   while (BytesToWrite > 0) {
-      int BytesWritten = write(SocketFd,BufferPtr,BytesToWrite);
-      if (BytesWritten < 0) {
-         if (TransientError()) {
-            BytesWritten = 0;
-         } else {
-            ReturnValue = -1;
-            ErrorText = "Error writing " + FormatUint(BytesToWrite) +
-                        " bytes to socket fd " + FormatInt(SocketFd);
-            break;
-         }
-      }
-      BufferPtr += BytesWritten;
-      BytesToWrite -= BytesWritten;
-   }
-   return ReturnValue;
-}
-
-// -----------------------------------------------------------------------------
-
-//                         R e a d  T S C
-/*!
- *   All modern Intel PC architecture systems support a time stamp counter,
- *   the TSC, which is incremented by one for each tick of the system clock.
- *   So for a 1Ghz system, the TSC goes up by one each nanosecond. This
- *   can provide a very accurate way of measuring short intervals. This
- *   routine returns the current value of the TSC. On systems that do not
- *   have a TSC, it returns a plausible imitation. 
- *
- *   \return An unsigned long long value giving the current TSC.
- *
- *   \author Keith Shortridge, AAO.
- */
- 
-unsigned long long TcsUtil::ReadTSC (void)
-
-//  There are two versions of this routine. One is for PC architecture
-//  machines - such as the TCS target system - which have a genuine time
-//  stamp counter, and one for all the other systems. For the PC systems,
-//  we assume the __i386__ compiler flag will be set (note that you can tell
-//  which system-specific flags are set, at least for gcc, by using
-//  cpp -dM), and we generate the necessary assembler instruction to read
-//  the TCS. For other systems, which will be running in simulation and
-//  where extreme accuracy will not really be an issue, we fall back on
-//  using gettimeofday().
-
-#ifdef __i386__
-{
-   //  This code snippet comes from the realfeel() code as distributed by
-   //  Andrew Morton. Realfeel was originally written by Mark Hahn - I don't
-   //  know which of them wrote this code, but I'm grateful to them both.
-   
-    unsigned long long tsc;
-    __asm__ __volatile__("rdtsc" : "=A" (tsc));
-    return tsc;
-}
-#else
-{
-   //  For non-PC systems, we use gettimeofday(), which provides a value in
-   //  seconds and microseconds. We turn this into something approximating
-   //  a TSC value for a 1GHz system. Note: it's important to have all the
-   //  calculations done in 64 bit, using long long, which is why Sec and
-   //  USec are used as intermediate long long variables. Note that
-   //  in 2005 even (CurrentTime.tv_sec * 1000000) will overflow the
-   //  32 bit limit.
-   
-   struct timeval CurrentTime;
-   gettimeofday (&CurrentTime,NULL);
-   unsigned long long Nanosec;
-   unsigned long long Microsec;
-   unsigned long long Sec = CurrentTime.tv_sec;
-   unsigned long long USec = CurrentTime.tv_usec;
-   Microsec = (Sec * 1000000) + USec;
-   Nanosec = Microsec * 1000;
-   return Nanosec;
-}
-#endif
 
 //  ----------------------------------------------------------------------------
 
@@ -805,119 +514,6 @@ unsigned int TcsUtil::ConvertFromBCD (    //  The converted value.
    return Result;
 }
 
-// -----------------------------------------------------------------------------
-
-//          S e t  A s  R e a l  T i m e  H i g h  P r i o r i t y
-/*!
- *   SetAsRealTimeHighPriority() allows a suitably priveleged task to
- *   set itself up as a high priority real-time task with memory locked
- *   into real memory. This is needed for tasks that need the best
- *   real-time response that the operating system can provide. On Linux
- *   this requires that the task be running with root privileges.
- *   If the task fails to set itself up properly (usually because it
- *   does not have the necessary privilege, or because the operating
- *   system does not support the facility, at least as coded here),
- *   an error message is returned in the ErrorText string and the
- *   routine returns false. If all goes OK, it returns true.
- *
- *   \param  ErrorText   A string left unchanged unless there is an error. If
- *                       an error occurs, ErrorText is set to a description
- *                       of the error.
- *
- *   \return True if all went well, false if an error occurred.
- *
- *   \author Keith Shortridge, AAO.
- */
-
-bool TcsUtil::SetAsRealTimeHighPriority(// Returns true if OK, false otherwise
-   std::string& ErrorText)              // Unchanged except on error
-
-#ifdef __linux__
-{
-   //  Under Linux, a suitably privileged task can set itself to use
-   //  'fifo' scheduling at the highest priority level. It can also
-   //  lock all its memory both now and in the future.
-   
-   bool ReturnStatus = false;
-   struct sched_param SchedParam;
-   int Invoke;
-   SchedParam.sched_priority = sched_get_priority_max(SCHED_FIFO);
-   Invoke = sched_setscheduler (0,SCHED_FIFO,&SchedParam);
-   if (Invoke) {
-      ErrorText = "Error setting real-time scheduling: " + GetErrnoText();
-   } else {
-      Invoke = mlockall (MCL_CURRENT | MCL_FUTURE);
-      if (Invoke) {
-         ErrorText = "Error locking memory: " + GetErrnoText();
-      } else {
-         ReturnStatus = true;
-      }
-   }
-   return ReturnStatus;
-}
-
-#else
-
-{
-   //  Under non-Linux operating systems, what we want to do may well
-   //  be possible, but it isn't required for TCS test purposes.
-   
-   ErrorText = "Cannot set up as a real-time task under this OS";
-   return false;
-}
-   
-#endif
-
-//  ----------------------------------------------------------------------------
-
-//                  S c h e d u l e  Q u a n t u m
-//
-/*!  ScheduleQuantum() returns what is really no more than a best guess at
- *   the time quantum used by the operating system for scheduling
- *   purposes. The delay we request for the FAST loop is rounded down with
- *   this quantum taken into account. The value returned is in microseconds.
- *
- *   \return An estimate of the operating system scheduling quantum in
- *           microseconds.
- */
- 
-unsigned int TcsUtil::ScheduleQuantum (void)
-{
-   //  We do this in a somewhat ad hoc way. I don't know of a proper way
-   //  to get this value. We simply assume that Linux 2.6 kernels and
-   //  above have a 1 msec quantum and earlier releases use 10 msec.
-   //  Other systems don't really matter for TCS purposes, so we use
-   //  10 msec for them.
-   
-   unsigned int QuantumUsec = 10000;
-   struct utsname UnameBuffer;
-   if (uname(&UnameBuffer) >= 0) {
-      if (!strcmp(UnameBuffer.sysname,"Linux")) {
-      
-         //  This is Linux. Now look at the release. We're only interested
-         //  in the first two parts of the number, which can be something
-         //  like "2.4.21-40.ELsmp" (from aaolxp).
-         
-         char Release[10];
-         unsigned int I;
-         int DotCount = 0;
-         strncpy (Release,UnameBuffer.release,sizeof(Release));
-         Release[sizeof(Release) - 1] = '\0';
-         for (I = 0; I < sizeof(Release); I++) {
-            if (Release[I] == '.') {
-               DotCount++;
-               if (DotCount == 2) {
-                  Release[I] = '\0';
-               }
-            }
-         }
-         if (atof(Release) >= 2.6) {
-            QuantumUsec = 1000;
-         }
-      }
-   }
-   return QuantumUsec;
-}
 
 // -----------------------------------------------------------------------------
 
@@ -1039,6 +635,419 @@ void TcsUtil::Tokenize(
       if (Pos >= Length) Pos = NotFound;
    }
 }
+
+#if defined(__unix__) || defined(__APPLE__)
+
+#include <unistd.h>
+#include <sched.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/socket.h>
+#include <sys/mman.h>
+#include <sys/utsname.h>
+#include <strings.h>
+
+// -----------------------------------------------------------------------------
+
+//                         G e t  E r r n o  T e x t
+/*!
+ *   GetErrnoText() returns a string containing a description of the
+ *   current errno value. The idea is that it can be used to help generate
+ *   a message describing just what happened when a system routine returns
+ *   bad status.
+ *
+ *   \return A string describing the current errno value.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+ 
+string TcsUtil::GetErrnoText (void)
+{   
+   string ErrnoString = strerror(errno);
+   return ErrnoString;
+}
+
+// -----------------------------------------------------------------------------
+
+//                         T r a n s i e n t  E r r o r
+/*!
+ *   Many system calls can return prematurely, usually because they have
+ *   been interrupted by a signal. In some cases, they can just be
+ *   called again. TransientError() checks the current errno value to see
+ *   if is a value such as EAGAIN or EINTR which indicates that a system
+ *   routine can be retried. So this should be used when a system routine
+ *   returns a -1 value. If TransientError() returns true, retry the system
+ *   call.
+ *
+ *   \return True if the erroring system call can be retried.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+ 
+bool TcsUtil::TransientError (void)
+{
+   return ((errno == EAGAIN) || (errno == EINTR));
+}
+
+// -----------------------------------------------------------------------------
+
+//                     R e a d  S o c k e t  D a t a
+/*!
+ *   Reading from a socket requires slightly more than just issuing a
+ *   read() call for the given file descriptor. Socket reads can be
+ *   interrupted and need to be retried, and if a socket is set non-
+ *   blocking the fact that a select() call shows that data is available
+ *   does not prove that all the data is ready - a read may not
+ *   get all the data in this case. This routine handles these various
+ *   considerations. It will read the required amount of data from the
+ *   specified socket, even if the socket is non-blocking. Note that
+ *   this means that this routine effectively blocks until all the data
+ *   is available, so this should not be used if a number of sockets
+ *   are being monitored unless you are confident that delaying to read
+ *   all the data from one socket as soon as it shows as readable is
+ *   not going to be a problem. (If it is, you need a much more complex
+ *   scheme.) 
+ *
+ *   \param  SocketFd    Gives the file descriptor open on the socket.
+ *   \param  Buffer      The address of the buffer into which data is to
+ *                       be read.
+ *   \param  Bytes       The number of bytes to be read. Do not just pass
+ *                       the size of the buffer, unless the buffer really is
+ *                       to be filled, as this routine keeps reading until
+ *                       it has read all of the specified byte count.
+ *   \param  TimeoutMsec A timeout value in milliseconds. If the specified
+ *                       number of bytes have not been read in this time,
+ *                       this routine returns an error value of -1. If a 
+ *                       timeout of zero is specified, the routine waits
+ *                       indefinitely.
+ *   \param  ErrorText   A string left unchanged unless there is an error. If
+ *                       an error occurs, ErrorText is set to a description
+ *                       of the error.
+ *
+ *   \return The number of bytes read, if all went well (which will always
+ *           be equal to the Bytes argument). If an error occurs, -1 is
+ *           returned.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+
+int TcsUtil::ReadSocketData (           // Returns bytes read, or -1
+   int SocketFd,                        // Socket file descriptor
+   char* Buffer,                        // Data buffer
+   unsigned int Bytes,                  // Number of bytes to read
+   unsigned int TimeoutMsec,            // Timeout in msec. (0 => indefinite)
+   std::string& ErrorText)              // Unchanged except on error
+{
+   unsigned int BytesToRead = Bytes;
+   char* BufferPtr = Buffer;
+   int ReturnValue = Bytes;
+
+   //  This code assumes that the socket is set non-blocking, in which
+   //  case we may need to repeat the read until we get all the data we
+   //  want. (Which means the timeout applies to each read separately.)
+   //  If the socket is blocking, the effect will be that we wait until
+   //  some data is available, but then assume that we can read all the 
+   //  specified data.
+    
+   while (BytesToRead > 0) {
+   
+      if (TimeoutMsec > 0) {
+      
+         //  A timeout was specified, so use select() to wait for data to
+         //  be ready on the socket. This allows a timeout to be supplied.
+         
+         fd_set TestDescriptors;               // Used to test file descriptors
+         struct timeval Timeout;
+         bool DataReady = false;
+         FD_ZERO(&TestDescriptors);
+         FD_SET(SocketFd,&TestDescriptors);
+         Timeout.tv_sec = TimeoutMsec / 1000;
+         Timeout.tv_usec = (TimeoutMsec % 1000) * 1000;
+         
+         //  This loop, potentially repeating the select call, allows for the
+         //  possibility that select() is interrupted. We come out of it
+         //  either on a non-transient error or when data is ready.
+         
+         while (!DataReady) {
+            int Status = select(SocketFd + 1,
+                                 &TestDescriptors,NULL,NULL,&Timeout);
+            if (Status == 0) {
+               ErrorText = "Timeout error waiting to read from socket fd "
+                                                      + FormatInt(SocketFd);
+               break;
+            } else if (Status < 0) {
+               if (!TransientError()) {
+                  ErrorText = "Select error waiting to read from socket fd "
+                                                      + FormatInt(SocketFd);
+                  break;
+               }
+            } else {
+               DataReady = true;
+            }
+         }
+         
+         //  If data wasn't ready, then we've had an error or timeout.
+         
+         if (!DataReady) {
+            ReturnValue = -1;
+            break;
+         }
+      }
+      
+      //  Now read as much of the data as we have available.
+      
+      int BytesRead = read (SocketFd,BufferPtr,BytesToRead);
+      if (BytesRead == 0) {
+         ErrorText = "End of file on socket fd " + FormatInt(SocketFd);
+         ReturnValue = -1;
+         break;
+      } else if (BytesRead < 0) {
+         if (TransientError()) {
+            BytesRead = 0;
+         } else {
+            ErrorText = "Error reading " + FormatUint(BytesToRead) +
+                      " bytes from socket fd " + FormatInt(SocketFd);
+            ReturnValue = -1;
+            break;
+         }
+      }
+      BytesToRead -= BytesRead;
+      BufferPtr += BytesRead;
+   }
+   return ReturnValue;  
+}
+
+// -----------------------------------------------------------------------------
+
+//                     W r i t e  S o c k e t  D a t a
+/*!
+ *   Writing to a socket needs to allow for the possibility that
+ *   a write() call will be interrupted and need to be retried, and
+ *   even for the possibility that a single write() call may not
+ *   transfer all the data. This routine handles these considerations,
+ *   writing the specified data to the socket and only returning when
+ *   all the data has been written. (Note that this is not the same as
+ *   a guarantee that it has been received, only that it has been
+ *   written to the socket.)
+ *
+ *   \param  SocketFd    Gives the file descriptor open on the socket.
+ *   \param  Buffer      The address of the buffer from which data is to
+ *                       be written.
+ *   \param  Bytes       The number of bytes to be written.
+ *   \param  ErrorText   A string left unchanged unless there is an error. If
+ *                       an error occurs, ErrorText is set to a description
+ *                       of the error.
+ *
+ *   \return The number of bytes written, if all went well (which will always
+ *           be equal to the Bytes argument). If an error occurs, -1 is
+ *           returned.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+ 
+int TcsUtil::WriteSocketData (          // Returns bytes written, or -1
+   int SocketFd,                        // Socket file descriptor
+   const char* Buffer,                  // Data buffer
+   unsigned int Bytes,                  // Number of bytes to write
+   std::string& ErrorText)              // Unchanged except on error
+{
+   unsigned int BytesToWrite = Bytes;
+   const char* BufferPtr = Buffer;
+   int ReturnValue = Bytes;
+   
+   while (BytesToWrite > 0) {
+      int BytesWritten = write(SocketFd,BufferPtr,BytesToWrite);
+      if (BytesWritten < 0) {
+         if (TransientError()) {
+            BytesWritten = 0;
+         } else {
+            ReturnValue = -1;
+            ErrorText = "Error writing " + FormatUint(BytesToWrite) +
+                        " bytes to socket fd " + FormatInt(SocketFd);
+            break;
+         }
+      }
+      BufferPtr += BytesWritten;
+      BytesToWrite -= BytesWritten;
+   }
+   return ReturnValue;
+}
+
+// -----------------------------------------------------------------------------
+
+//                         R e a d  T S C
+/*!
+ *   All modern Intel PC architecture systems support a time stamp counter,
+ *   the TSC, which is incremented by one for each tick of the system clock.
+ *   So for a 1Ghz system, the TSC goes up by one each nanosecond. This
+ *   can provide a very accurate way of measuring short intervals. This
+ *   routine returns the current value of the TSC. On systems that do not
+ *   have a TSC, it returns a plausible imitation. 
+ *
+ *   \return An unsigned long long value giving the current TSC.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+ 
+unsigned long long TcsUtil::ReadTSC (void)
+
+//  There are two versions of this routine. One is for PC architecture
+//  machines - such as the TCS target system - which have a genuine time
+//  stamp counter, and one for all the other systems. For the PC systems,
+//  we assume the __i386__ compiler flag will be set (note that you can tell
+//  which system-specific flags are set, at least for gcc, by using
+//  cpp -dM), and we generate the necessary assembler instruction to read
+//  the TCS. For other systems, which will be running in simulation and
+//  where extreme accuracy will not really be an issue, we fall back on
+//  using gettimeofday().
+
+#ifdef __i386__
+{
+   //  This code snippet comes from the realfeel() code as distributed by
+   //  Andrew Morton. Realfeel was originally written by Mark Hahn - I don't
+   //  know which of them wrote this code, but I'm grateful to them both.
+   
+    unsigned long long tsc;
+    __asm__ __volatile__("rdtsc" : "=A" (tsc));
+    return tsc;
+}
+#else
+{
+   //  For non-PC systems, we use gettimeofday(), which provides a value in
+   //  seconds and microseconds. We turn this into something approximating
+   //  a TSC value for a 1GHz system. Note: it's important to have all the
+   //  calculations done in 64 bit, using long long, which is why Sec and
+   //  USec are used as intermediate long long variables. Note that
+   //  in 2005 even (CurrentTime.tv_sec * 1000000) will overflow the
+   //  32 bit limit.
+   
+   struct timeval CurrentTime;
+   gettimeofday (&CurrentTime,NULL);
+   unsigned long long Nanosec;
+   unsigned long long Microsec;
+   unsigned long long Sec = CurrentTime.tv_sec;
+   unsigned long long USec = CurrentTime.tv_usec;
+   Microsec = (Sec * 1000000) + USec;
+   Nanosec = Microsec * 1000;
+   return Nanosec;
+}
+#endif
+
+// -----------------------------------------------------------------------------
+
+//          S e t  A s  R e a l  T i m e  H i g h  P r i o r i t y
+/*!
+ *   SetAsRealTimeHighPriority() allows a suitably priveleged task to
+ *   set itself up as a high priority real-time task with memory locked
+ *   into real memory. This is needed for tasks that need the best
+ *   real-time response that the operating system can provide. On Linux
+ *   this requires that the task be running with root privileges.
+ *   If the task fails to set itself up properly (usually because it
+ *   does not have the necessary privilege, or because the operating
+ *   system does not support the facility, at least as coded here),
+ *   an error message is returned in the ErrorText string and the
+ *   routine returns false. If all goes OK, it returns true.
+ *
+ *   \param  ErrorText   A string left unchanged unless there is an error. If
+ *                       an error occurs, ErrorText is set to a description
+ *                       of the error.
+ *
+ *   \return True if all went well, false if an error occurred.
+ *
+ *   \author Keith Shortridge, AAO.
+ */
+
+bool TcsUtil::SetAsRealTimeHighPriority(// Returns true if OK, false otherwise
+   std::string& ErrorText)              // Unchanged except on error
+
+#ifdef __linux__
+{
+   //  Under Linux, a suitably privileged task can set itself to use
+   //  'fifo' scheduling at the highest priority level. It can also
+   //  lock all its memory both now and in the future.
+   
+   bool ReturnStatus = false;
+   struct sched_param SchedParam;
+   int Invoke;
+   SchedParam.sched_priority = sched_get_priority_max(SCHED_FIFO);
+   Invoke = sched_setscheduler (0,SCHED_FIFO,&SchedParam);
+   if (Invoke) {
+      ErrorText = "Error setting real-time scheduling: " + GetErrnoText();
+   } else {
+      Invoke = mlockall (MCL_CURRENT | MCL_FUTURE);
+      if (Invoke) {
+         ErrorText = "Error locking memory: " + GetErrnoText();
+      } else {
+         ReturnStatus = true;
+      }
+   }
+   return ReturnStatus;
+}
+
+#else
+
+{
+   //  Under non-Linux operating systems, what we want to do may well
+   //  be possible, but it isn't required for TCS test purposes.
+   
+   ErrorText = "Cannot set up as a real-time task under this OS";
+   return false;
+}
+   
+#endif
+
+//  ----------------------------------------------------------------------------
+
+//                  S c h e d u l e  Q u a n t u m
+//
+/*!  ScheduleQuantum() returns what is really no more than a best guess at
+ *   the time quantum used by the operating system for scheduling
+ *   purposes. The delay we request for the FAST loop is rounded down with
+ *   this quantum taken into account. The value returned is in microseconds.
+ *
+ *   \return An estimate of the operating system scheduling quantum in
+ *           microseconds.
+ */
+ 
+unsigned int TcsUtil::ScheduleQuantum (void)
+{
+   //  We do this in a somewhat ad hoc way. I don't know of a proper way
+   //  to get this value. We simply assume that Linux 2.6 kernels and
+   //  above have a 1 msec quantum and earlier releases use 10 msec.
+   //  Other systems don't really matter for TCS purposes, so we use
+   //  10 msec for them.
+   
+   unsigned int QuantumUsec = 10000;
+   struct utsname UnameBuffer;
+   if (uname(&UnameBuffer) >= 0) {
+      if (!strcmp(UnameBuffer.sysname,"Linux")) {
+      
+         //  This is Linux. Now look at the release. We're only interested
+         //  in the first two parts of the number, which can be something
+         //  like "2.4.21-40.ELsmp" (from aaolxp).
+         
+         char Release[10];
+         unsigned int I;
+         int DotCount = 0;
+         strncpy (Release,UnameBuffer.release,sizeof(Release));
+         Release[sizeof(Release) - 1] = '\0';
+         for (I = 0; I < sizeof(Release); I++) {
+            if (Release[I] == '.') {
+               DotCount++;
+               if (DotCount == 2) {
+                  Release[I] = '\0';
+               }
+            }
+         }
+         if (atof(Release) >= 2.6) {
+            QuantumUsec = 1000;
+         }
+      }
+   }
+   return QuantumUsec;
+}
+
+#endif
 
 // -----------------------------------------------------------------------------
 

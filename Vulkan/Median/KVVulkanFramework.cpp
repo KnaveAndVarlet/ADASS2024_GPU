@@ -59,6 +59,8 @@
 //                    DrawFrame() is now re-implemented using a call to DrawGraphicsFrame(). KS.
 //     14th Sep 2024. Renamed to from VulkanFramework to KVVulkanFramework, which should make it
 //                    clear this isn't a standard part of Vulkan. Added formal copyright text. KS.
+//      3rd Oct 2024. Corrected careless use of nullptr instead of VK_NULL_HANDLE in a couple
+//                    of places in the pipeline code. KS.
 //
 //  Copyright (c) Knave and Varlet (K&V), (2024).
 //  Significant portions of this code are based closely on code from the Vulkan-tutorial website,
@@ -1774,8 +1776,8 @@ void KVVulkanFramework::CreateComputePipeline(
 {
     if (!AllOK(StatusOK)) return;
     
-    *PipelineLayoutHndlPtr = nullptr;
-    *PipelineHndlPtr = nullptr;
+    *PipelineLayoutHndlPtr = VK_NULL_HANDLE;
+    *PipelineHndlPtr = VK_NULL_HANDLE;
 
     //  Read the SPIR_V code from the file, and create the required shader module.
     
@@ -4289,8 +4291,8 @@ void KVVulkanFramework::CreateGraphicsPipeline(
 {
     if (!AllOK(StatusOK)) return;
 
-    *PipelineLayoutHndlPtr = nullptr;
-    *PipelineHndlPtr = nullptr;
+    *PipelineLayoutHndlPtr = VK_NULL_HANDLE;
+    *PipelineHndlPtr = VK_NULL_HANDLE;
 
     //  Build up the sets of binding and attribute descriptions associated with the buffers.
     

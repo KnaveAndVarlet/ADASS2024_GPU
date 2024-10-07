@@ -40,9 +40,13 @@
 //                    are now displayed if the response to a prompt is '?'. KS.
 //     15th Aug 2024. Now supports the use of a CmdArgHelper for arguments,
 //                    and allows explicit null strings to be specified at a
+//                    prompt using "" or ''. Removed some unneeded code. KS.
 //     19th Aug 2024. A '?' as the command line value for a parameter now
 //                    forces a prompt for it, accompanied by help text. KS.
-//                    prompt using "" or ''. Removed some unneeded code. KS.
+//      4th Oct 2024. Added code to allow this to work under Windows as well
+//                    as under Linux and MacOS. The files used to store the
+//                    values of parameters differ between the two systems, as
+//                    does the treatment of '~' at the start of filenames. KS.
 
 #include "CommandHandler.h"
 
@@ -50,9 +54,16 @@
 #include "ReadFilename.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include <iostream>
+#include <fstream>
+#include <filesystem>
+
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+
 #include <unistd.h>
 #include <sys/errno.h>
-#include <string.h>
 #include <glob.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -60,8 +71,12 @@
 #include <pwd.h>
 #include <sys/ioctl.h>
 
-#include <iostream>
-#include <fstream>
+#elif defined (_WIN32)
+
+#include <winsock.h>
+#include <io.h>
+
+#endif
 
 using std::string;
 using std::list;
@@ -291,7 +306,7 @@ string CmdArg::PromptUser (const string& Default)
                Value = "";
                break;
             } else {
-               if (Value == "\'?\'" or (Value == "\"?\"")) Value = "?";
+               if (Value == "\'?\'" || (Value == "\"?\"")) Value = "?";
                if (Value == "?") {
                   OutputHelpText();
                } else {
@@ -634,7 +649,7 @@ bool CmdArg::DetermineValue (string* CurrentValue)
                      if (I_Handler) I_Handler->RequestExit();
                      break;
                   }
-                  if (Reply == "\'!\'" or (Reply == "\"!\"")) Reply = "!";
+                  if (Reply == "\'!\'" || (Reply == "\"!\"")) Reply = "!";
                   ExpandValue (&Reply);
                   //  Was this a valid reply?
                   bool Valid = ValidValue(Reply);
@@ -805,7 +820,7 @@ FileArg::~FileArg()
 
 bool FileArg::FileExists (const string& FileName)
 {
-   return (access(FileName.c_str(), F_OK ) != -1);
+   return (std::filesystem::exists(FileName));
 }
 
 bool FileArg::AllowedValue (const string& Value)
@@ -847,6 +862,15 @@ void FileArg::ExpandValue (string* Value)
 
 void FileArg::ExpandTildePath (string* Path)
 {
+   //  In UNIX type systems,"~username/" at the start of a path means the home
+   //  directory of the specified user, with just "~/" being the home directory
+   //  of the current user. Windows allows "~" as a character in file names, 
+   //  but for Windows we treat a leading "~\" as the current user's home 
+   //  directory. This routine checks the passed path for a leading "~" and
+   //  modifies it accordingly.
+
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+
    if (Path->size() > 1) {
       if ((*Path)[0] == '~') {
          size_t Idx = Path->find('/');
@@ -863,6 +887,21 @@ void FileArg::ExpandTildePath (string* Path)
          }
       }
    }
+
+#elif defined (_WIN32)
+
+   if (Path->size() > 2) {
+      if (((*Path)[0] == '~') && ((*Path)[1] == '\\')) {
+	 const char* Home = getenv("USERPROFILE");
+         if (Home) {
+            string ExpandedPath = string(Home) + Path->substr(2);
+            *Path = ExpandedPath;
+         }
+      }
+   }
+
+#endif
+
 }
 
 
@@ -1528,6 +1567,8 @@ int CmdInteractor::GetScreenWidth (void)
    //  GetScreenWidth() packages up the messy code needed by ScreenWidth() to
    //  get the actual width. Most modern Linux systems should support
    //  the winsize structure, but most example code around tests like this.
+   //  On Windows we don't try to get the screen width and just return a 
+   //  zero to indicate this.
    
    int Width = 0;
 #ifdef TIOCGWINSZ
@@ -1630,12 +1671,40 @@ void CmdHandler::AddArg (CmdArg* Arg)
 
 string CmdHandler::GetParameterFile(void)
 {
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+   
+   //  For UNIX-like systems (Linux,MacOS) we use a filename formed as:
+   //  "/tmp/<username>/<program_name>_parameters"
+
    string Filename = "/tmp";
    struct passwd *PwdPtr = getpwuid (geteuid());
    if (PwdPtr) Filename += ("/" + string(PwdPtr->pw_name));
-   if (access(Filename.c_str(),F_OK) != 0) mkdir (Filename.c_str(),0777);
+   if (!std::filesystem::exists(Filename)) 
+                         std::filesystem::create_directory(Filename);
    Filename += ("/" + I_Program + "_parameters");
    return Filename;
+
+#elif defined(_WIN32)
+
+   //  For Windows, we use a filename formed as:
+   //  <user's home directory>\<program_name>_parameters"
+
+   string Filename = I_Program + "_parameters";
+   const char* Home = getenv("USERPROFILE");
+   if (Home) {
+      Filename = string(Home) + "\\tmp";
+      if (!std::filesystem::exists(Filename))
+                        std::filesystem::create_directory(Filename);
+      Filename += ("\\" + I_Program + "_parameters");
+   }
+   return Filename;
+
+#else
+
+   return I_Program + "_parameters";
+
+#endif
+
 }
 
 bool CmdHandler::SaveCurrent (void)
@@ -1673,7 +1742,8 @@ bool CmdHandler::ReadPrevious (bool MustExist)
    bool ReturnOK = true;
    FILE* ParamsFile = NULL;
    string FileName = GetParameterFile();
-   bool Exists = (access(FileName.c_str(), F_OK) != -1);
+   //bool Exists = (access(FileName.c_str(), F_OK) != -1);
+   bool Exists = (std::filesystem::exists(FileName));
    if (Exists) {
       ParamsFile = fopen (FileName.c_str(),"r");
       if (ParamsFile == NULL) {

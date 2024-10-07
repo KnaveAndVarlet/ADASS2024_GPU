@@ -14,6 +14,8 @@
 //  23rd Feb 2024. Minor change - cast added - to placate VisualStudio compiler. KS.
 //  14th Sep 2024. Now uses gettimeofday() for Unix-like systems to reduce need
 //                 for GLFW on MacOS and Linux. KS.
+//   4th Oct 2024. Replaced the GLFW code with Windows-specific code and a dummy
+//                 for cases where we don't recognise the system. KS.
 
 #ifndef __MsecTimer__
 #define __MsecTimer__
@@ -41,9 +43,17 @@ private:
     struct timeval _startTime;
 };
 
-#else
+#elif defined (_WIN32)
 
-#include <GLFW/glfw3.h>
+//  This version is for Windows.
+
+//  Annoyingly, windows.h defines max and min unless you tell it not to. Actually, it's
+//  rather a shame to have a general-purpose include file like this that includes
+//  Windows.h. Perhaps, at least on Windows, the code should be in a separate file,
+//  and the FILETIME variable could be replaced by a double with the start msec time.
+
+#define NOMINMAX
+#include <windows.h>
 
 class MsecTimer
 {
@@ -51,15 +61,38 @@ public:
     MsecTimer() { Restart(); }
     ~MsecTimer() {}
     void Restart(void) {
-        _startTime = glfwGetTime();
+        GetSystemTimePreciseAsFileTime(&_startTime);
     }
     float ElapsedMsec(void) {
-        float Msec = float((glfwGetTime() - _startTime) * 1000.0);
+        FILETIME currentTime;
+        GetSystemTimePreciseAsFileTime(&currentTime);
+        ULARGE_INTEGER start100nsec;
+        ULARGE_INTEGER current100nsec;
+        start100nsec.LowPart = _startTime.dwLowDateTime;
+        start100nsec.HighPart = _startTime.dwHighDateTime;
+        current100nsec.LowPart = currentTime.dwLowDateTime;
+        current100nsec.HighPart = currentTime.dwHighDateTime;
+        float Msec = float(current100nsec.QuadPart - start100nsec.QuadPart) / 10000.0f;
         return Msec;
     }
 private:
-    double _startTime;
+    FILETIME _startTime;
 };
+
+#else
+
+//  This is a dummy, only used if we can't recognise the system. It doesn't
+//  work - it returns a negative elapsed time - but will will compile and link.
+
+class MsecTimer
+{
+public:
+    MsecTimer() {}
+    ~MsecTimer() {}
+    void Restart(void) {}
+    float ElapsedMsec(void) { return -1.0; }
+};
+
 
 #endif
 
@@ -68,11 +101,8 @@ private:
 /*                       P r o g r a m m i n g   N o t e s
  
     o   This was originally written for MacOS and Linux, using gettimeofday().
-        Then I discovered this didn't work on Windows and introduced the GLFW
-        code, as the Mac and Linux systems I used had GLFW, as did my Windows
-        system, so this worked on everything. But then I realised it was
-        going to be a nuisance to depend on GLFW and added the #ifdef tests
-        for Mac/Linux. I suppose I should really remove GLFW from the Windows
-        code and replace it with Windows-specific code. One day..
+        Then I discovered this didn't work on Windows and introduced a version
+        using GLFW code, which was portable, but it was a nuisance to depend on
+        GLFW and eventually I reworked it with specific Windows and *nix code.	
  
 */

@@ -83,6 +83,8 @@
 //      24th Sep 2024. Added include of string.h for systems that need it. Fixed minor issue
 //                     with error reporting when closing a FITS file. KS.
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
+//       6th Oct 2024. Now uses new and delete[] instead of a C99 dynamic array to keep track
+//                     of threads in CPU code. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -730,7 +732,7 @@ int OnePassUsingCPU(int Threads,float** InputArray,int Nx,int Ny,int Npix,float*
         //  If threading, create the specified number of threads, and divide the image rows
         //  between them.
         
-        std::thread ThreadList[Threads];
+        std::thread* ThreadList = new std::thread[Threads];
         int Iy = 0;
         int Iyinc = Ny / Threads;
         for (int IThread = 0; IThread < Threads; IThread++) {
@@ -751,6 +753,8 @@ int OnePassUsingCPU(int Threads,float** InputArray,int Nx,int Ny,int Npix,float*
         if (Iy < Ny) {
             ComputeRangeUsingCPU(InputArray,Nx,Ny,Iy,Ny,Npix,OutputArray);
         }
+
+	delete[] ThreadList;
     }
     return Threads;
 }

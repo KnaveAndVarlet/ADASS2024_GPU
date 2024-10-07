@@ -9,15 +9,27 @@
 //    from a terminal - to prompt the user for the name of a file. What makes
 //    this more than just a "write a prompt, read a line" routine is that it
 //    supports filename completion. For full details, see the comments at the
-//    start of ReadFilename.h
+//    start of ReadFilename.h. 
 //
-//
-//  Author: Keith SHortridge, K&V (Keith@Knave&Varlet.com.au)
+//  Versions:
+//    The original version of this code was developed on MacOS and only meant
+//    to run on UNIX-like systems such as MacOS and Linux. It makes a lot of
+//    use of very UNIX-specific system calls. If built under a different OS,
+//    such as Windows, this version bypasses almost all the code here and
+//    builds a minimal routine that prompts for a filename and returns the
+//    response, but does none of the fancy filename completion of the UNIX
+//    version.
+
+//  Author: Keith Shortridge, K&V (Keith@Knave&Varlet.com.au)
 //
 //  History:
-//     22nd Jan 2021. Original version.
+//     22nd Jan 2021. Original version. KS.
+//      4th Oct 2024. Now builds under Windows, but without all the fancy
+//                    filename completion. KS.
 
 #include "ReadFilename.h"
+
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -372,6 +384,31 @@ void HandleTab (char* Line,size_t Len,int* Idx)
    }
 }
 
+#else
+
+// -----------------------------------------------------------------------------
+
+//                    R e a d  F i l e n a m e   (default)
+//
+//  This trivial version does none of the fancy filename completion performed
+//  by the version for UNIX-line systems (Linux,MacOS). It just issues the
+//  prompt and reads in the response. Eventually, I may get around to a version
+//  for Windows that has the same functionality as the UNIX version.
+
+#include <iostream>
+#include <string>
+
+int ReadFilename (const char* Prompt, char* Line, size_t Len)
+{
+   std::cout << Prompt;
+   std::string Text;
+   std::getline (std::cin,Text);
+   strncpy (Line,Text.c_str(),Len);
+   Line[Len] = '\0';
+   return 0;
+}
+
+#endif
 
 // -----------------------------------------------------------------------------
 

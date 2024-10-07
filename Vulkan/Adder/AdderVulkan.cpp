@@ -96,6 +96,8 @@
 //      10th Sep 2024. Slight tweaks to disgnostics. KS.
 //      14th Sep 2024. Modified following renaming of Framework routines and types. KS.
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
+//       3rd Oct 2024. Use of variable length dynamic arrays replaced by new and delete in
+//                     the CPU code. This now compiles under Windows. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -509,7 +511,7 @@ int OnePassUsingCPU(int Threads,float** InputArray,int Nx,int Ny,float** OutputA
         //  If threading, create the specified number of threads, and divide the image rows
         //  between them.
         
-        std::thread ThreadList[Threads];
+        std::thread* ThreadList = new std::thread[Threads];
         int Iy = 0;
         int Iyinc = Ny / Threads;
         for (int IThread = 0; IThread < Threads; IThread++) {
@@ -523,6 +525,7 @@ int OnePassUsingCPU(int Threads,float** InputArray,int Nx,int Ny,float** OutputA
         for (int IThread = 0; IThread < Threads; IThread++) {
             ThreadList[IThread].join();
         }
+	delete[] ThreadList;
         
         //  If there were rows left unhandled (because Ny was not a multiple of NThreads),
         //  finish them off in the main thread.
