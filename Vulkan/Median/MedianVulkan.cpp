@@ -73,6 +73,11 @@
 //      Vulkan version of the 'Median' example. By now it bears no resemblance at all to the
 //      original code, but I'm grateful for the start it gave me.
 //
+//  Compile options:
+//      If the pre-processor variable NO_CFITSIO is defined, this will be built without using
+//      the Cfitsio FITS library. This version will not be able to read or write FITS files,
+//      and so will just use a dummt array.
+//
 //  History:
 //      14th Aug 2024. First fully commented version. KS.
 //      20th Aug 2024. Brought up to match changes to Metal code, particularly the use of
@@ -85,6 +90,7 @@
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
 //       6th Oct 2024. Now uses new and delete[] instead of a C99 dynamic array to keep track
 //                     of threads in CPU code. KS.
+//       8th Oct 2024. Can now be built without Cfitsio. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -109,7 +115,14 @@
 
 //  FITS file access uses the cfitsio library.
 
+#ifndef NO_CFITSIO
+#define USE_CFITSIO
+#define USING_CFITSIO true
 #include "fitsio.h"
+#else
+typedef void fitsfile;
+#define USING_CFITSIO false
+#endif
 
 //  Required on some systems for strncpy().
 
@@ -237,7 +250,7 @@ int main (int Argc, char* Argv[]) {
     bool Ok = TheHandler.ParseArgs(Argc,Argv);
     std::string Filename = FilenameArg.GetValue(&Ok,&Error);
     int Nx = 0,Ny = 0;
-    if (Filename == "") {
+    if (Filename == "" || !USING_CFITSIO) {
         Nx = NxArg.GetValue(&Ok,&Error);
         Ny = NyArg.GetValue(&Ok,&Error);
     }
@@ -301,6 +314,9 @@ int main (int Argc, char* Argv[]) {
 
 bool ReadFitsFile(std::string& Filename,int* Nx,int* Ny,MedianDetails* Details)
 {
+
+#ifdef USE_CFITSIO
+
     fitsfile *Fptr;
     char Error[80];
     int Status = 0;
@@ -381,6 +397,14 @@ bool ReadFitsFile(std::string& Filename,int* Nx,int* Ny,MedianDetails* Details)
         }
     }
     return (Status == 0);
+
+#else
+
+    printf ("Cannot read FITS file, program was built without Cfitsio support\n");
+    return false;
+
+#endif
+
 }
 
 //  ------------------------------------------------------------------------------------------------
@@ -887,6 +911,9 @@ void SetInputArray(float** InputArray,int Nx,int Ny,MedianDetails* Details)
 
 bool WriteFitsFile(int Nx,int Ny,MedianDetails* Details)
 {
+
+#ifdef USE_CFITSIO
+
     int Status = 0;
     char Error[80];
     
@@ -932,6 +959,14 @@ bool WriteFitsFile(int Nx,int Ny,MedianDetails* Details)
         else printf("Output image written OK to %s\n",Details->OutputFileName.c_str());
     }
     return (Status == 0);
+
+#else
+
+    printf ("Cannot write a FITS file. Program was built without Cfitsio support\n");
+    return false;
+
+#endif
+
 }
 
 //  ------------------------------------------------------------------------------------------------
@@ -1033,7 +1068,9 @@ bool NoteResults(float** OutputArray,bool FromGPU,int Nx,int Ny,MedianDetails* D
 void Shutdown(MedianDetails* Details)
 {
     int Status = 0;
+#ifdef USE_CFITSIO
     if (Details->Fptr) fits_close_file(Details->Fptr,&Status);
+#endif
     if (Details->InputData) free(Details->InputData);
     if (Details->GPUOutputData) free(Details->GPUOutputData);
     if (Details->CPUOutputData) free(Details->CPUOutputData);

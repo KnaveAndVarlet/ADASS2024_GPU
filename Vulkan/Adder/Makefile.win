@@ -1,0 +1,76 @@
+#
+#              A d d e r     M a k e f i l e   (Windows)
+#
+#  This builds a Vulkan version of Adder, a demonstration program
+#  that uses Vulkan code to add values to a floating point array
+#  using a GPU, and tests the result and compares the timings with
+#  doing the same operation using the CPU. It assumes all the
+#  source code is in the default directory.
+#
+#  This version is for use on Windows, using nmake from a command
+#  prompt. It has been called Makefile.win to distinguish it from
+#  Makefile, which is set up for Unix-like systems. You can use 
+#  nmake /F Makefile.win  or you can rename Makefile.win to Makefile
+#  and nmake will use it by default.
+#
+#  The code assumes that Vulkan has been installed on the machine
+#  and can be found by default. It also assumes that glslc - the
+#  GLSL shader code compiler - has been installed.
+#
+#  To build and run:
+#
+#  nmake clean
+#  nmake
+#  Adder
+#
+#  Adder help     provides a description of the command line
+#                   parameters.
+
+Target : Adder.exe Adder.spv
+
+#  This section defines the locations where this Makefile expects to
+#  find the files it uses. These may need to be changed, depending on
+#  where libraries like cfitsio and vulkan have been installed.
+
+VULKAN_VERSION = 1.3.290.0
+
+VULKAN_DIR = C:\VulkanSDK\$(VULKAN_VERSION)
+
+#  End of location section.
+
+LIBRARIES = \
+    $(VULKAN_DIR)\Lib\vulkan-1.lib \
+    User32.lib gdi32.lib shell32.lib wsock32.lib
+
+INCLUDES = /I $(VULKAN_DIR)\Include
+
+OBJ_FILES = AdderVulkan.obj TcsUtil.obj Wildcard.obj CommandHandler.obj \
+                                ReadFilename.obj KVVulkanFramework.obj
+                        
+Adder.exe : $(OBJ_FILES)
+	cl $(OBJ_FILES) $(LIBRARIES) /Fe:Adder.exe
+
+AdderVulkan.obj : AdderVulkan.cpp MsecTimer.h
+	cl /EHsc /c /O2 /std:c++17 $(INCLUDES) AdderVulkan.cpp
+	   	
+TcsUtil.obj : TcsUtil.cpp TcsUtil.h
+	cl /EHsc /c /O2 /std:c++17 TcsUtil.cpp
+
+Wildcard.obj : Wildcard.cpp Wildcard.h
+	cl /EHsc /c /O2 /std:c++17  Wildcard.cpp
+
+CommandHandler.obj : CommandHandler.cpp CommandHandler.h
+	cl /EHsc /c /O2 /std:c++17 CommandHandler.cpp
+
+ReadFilename.obj : ReadFilename.cpp ReadFilename.h
+	cl /EHsc /c /O2 /std:c++17  ReadFilename.cpp
+
+KVVulkanFramework.obj : KVVulkanFramework.cpp KVVulkanFramework.h \
+					             DebugHandler.h
+	cl /EHsc /c /O2 /std:c++17  $(INCLUDES) KVVulkanFramework.cpp
+
+Adder.spv : Adder.comp
+	glslc Adder.comp -Os -o Adder.spv
+
+clean :
+	del Adder.exe Adder.spv $(OBJ_FILES)
