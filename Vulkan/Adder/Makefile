@@ -17,10 +17,14 @@
 #
 #  ./Adder help     provides a description of the command line
 #                   parameters.
+#
+#  Modified:
+#     16th Oct 2024. Added an explicit -lpthread for systems that
+#                    still need it. KS.
      
 Target : Adder Adder.spv
 
-LIBRARIES = -lvulkan
+LIBRARIES = -lvulkan -lpthread
 
 INCLUDES =
 

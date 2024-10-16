@@ -17,8 +17,12 @@
 #  To remove all the built files:
 #
 #  make clean
+#
+#  Modified:
+#     16th Oct 2024. Added an explicit -lpthread for systems that
+#                    still need it. KS.
 
-LIBRARIES = -lglfw -lvulkan
+LIBRARIES = -lglfw -lvulkan -lpthread
 
 INCLUDES =
 
@@ -46,7 +50,7 @@ MandelController.o : MandelController.cpp MandelController.h \
 
 RendererVulkan.o : RendererVulkan.cpp RendererVulkan.h \
 		  KVVulkanFramework.h
-	c++ -c -Wall -std=c++17 -O3  $(INCLUDES) RendererVulkan.cpp
+	c++ -c -Wall -std=c++17 -O3 $(INCLUDES) RendererVulkan.cpp
 
 WindowHandler.o : WindowHandler.cpp WindowHandler.cpp
 	c++ -c -Wall -std=c++17 $(INCLUDES) WindowHandler.cpp

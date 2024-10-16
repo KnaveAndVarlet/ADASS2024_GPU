@@ -31,7 +31,7 @@ struct MandelArgs {
     float yCent;      // Y-coordinate of the array center
     float dX;         // Change in X-coordinate per pixel
     float dY;         // Change in Y-coordinate per pixel
-    int iter;         // Maximum nukber of iterations
+    int iter;         // Maximum number of iterations
 };
 
 kernel void mandel(device float *out [[ buffer(1) ]],

@@ -98,6 +98,11 @@
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
 //       3rd Oct 2024. Use of variable length dynamic arrays replaced by new and delete in
 //                     the CPU code. This now compiles under Windows. KS.
+//      14th Oct 2024. Modified initial values for input array to make the test of the
+//                     results more stringent. KS.
+//      15th Oct 2024. Added SyncBuffer() calls so this works if buffers are staged. The setup
+//                     GPU code still makes them shared, but this makes the code work if the
+//                     setup code is modified experimentally to make them staged. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -304,7 +309,9 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
     //  to both the GPU and the CPU (since we need to use the CPU to set its initial values.)
     //  To set the contents of the buffer using the CPU, we need the address the CPU can use
     //  for this buffer, which we get by mapping it. Then we can initialise the buffer, using
-    //  a call to SetInputArray().
+    //  a call to SetInputArray(). We could use "STAGED_CPU" instead of "SHARED", which sets up
+    //  a CPU-local buffer and a GPU-local buffer which have to be explicitly synched. This may
+    //  provide better performance with some discrete GPUs.
 
     int Length = Nx * Ny * sizeof(float);
     KVVulkanFramework::KVBufferHandle InputBufferHndl;
@@ -318,11 +325,13 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
     
     //  And now a device buffer for the output data array. This is essentially the same as for
     //  the input buffer. This will have to be accessed on the CPU side by CheckResults(),
-    //  so we use CreateRowAddrs() to set up for this.
+    //  so we use CreateRowAddrs() to set up for this. (Here, "SHARED" could be replaced by
+    //  "STAGED_GPU" for buffers that need explicit synch, as the GPU creates the data that
+    //  then has to be copied to the CPU.)
     
     KVVulkanFramework::KVBufferHandle OutputBufferHndl;
     OutputBufferHndl = Framework.SetBufferDetails(C_OutputBufferBinding,"STORAGE",
-                                                                             "SHARED",StatusOK);
+                                                                            "SHARED",StatusOK);
     Framework.CreateBuffer(OutputBufferHndl,Length,StatusOK);
     float* OutputBufferAddr = (float*)Framework.MapBuffer(OutputBufferHndl,&Bytes,StatusOK);
     OutputArray = CreateRowAddrs(OutputBufferAddr,Nx,Ny);
@@ -411,13 +420,18 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
         Nrpt = 0;
     }
 
-    //  This sets up the pipeline for the GPU calculation and runs it.
+    //  This sets up the pipeline for the GPU calculation and runs it. Basically, we have to
+    //  record the command buffer - command buffers are 'use once' - and run it. If we have
+    //  staged buffers, they need to be synch'ed - the SyncBuffer() calls are null operations
+    //  for shared buffers.
     
     MsecTimer ComputeTimer;
     
     for (int Irpt = 0; Irpt < Nrpt; Irpt++) {
         
         MsecTimer LoopTimer;
+        
+        Framework.SyncBuffer(InputBufferHndl,CommandPool,ComputeQueue,StatusOK);
 
         Framework.RecordComputeCommandBuffer(CommandBuffer,ComputePipeline,
                                     ComputePipelineLayout,&DescriptorSet,WorkGroupCounts,StatusOK);
@@ -425,6 +439,9 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
                              LoopTimer.ElapsedMsec());
         
         Framework.RunCommandBuffer(ComputeQueue,CommandBuffer,StatusOK);
+        
+        Framework.SyncBuffer(OutputBufferHndl,CommandPool,ComputeQueue,StatusOK);
+        
         TheDebugHandler.Logf("Timing","Compute complete at %.3f msec",LoopTimer.ElapsedMsec());
         if (!StatusOK) break;
     }
@@ -621,7 +638,7 @@ void SetInputArray(float** InputArray,int Nx,int Ny)
     
     for (int Iy = 0; Iy < Ny; Iy++) {
         for (int Ix = 0; Ix < Nx; Ix++) {
-           InputArray[Iy][Ix] = float(Ny - Iy + Nx - Ix);
+            InputArray[Iy][Ix] = float(Ny + Iy + Iy + Nx - Ix - Ix);
         }
     }
 }
@@ -766,4 +783,14 @@ std::string DebugArgHelper::HelpText(void)
         wondered if it would slow down the GPU loop more, since it's writing into shared GPU/CPU
         memory, but apparently not) - but this slows down the faster CPU loop proportionally
         more than it does the slower GPU loop. Feel free to experiment...
-*/
+ 
+    o   Amazingly, it took me ages to realise that SetInputArray was setting each element of
+        the test array to a constant value minus the sum of the array indices. This meant that
+        if the program worked properly, adding the sum of the array indices, all the values in
+        the output array would have that same constant value! Code that got the first element
+        right and then set the rest of the output array to the same value would have passed.
+        Not a serious mistake, but it really confused me when I modified the code experimentally
+        and then wondered why all the elements seemed the same when I dumped the results as a
+        diagnostic.
+
+ */

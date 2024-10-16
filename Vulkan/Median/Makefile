@@ -22,10 +22,14 @@
 #
 #  ./Median help    provides a description of the command line
 #                   parameters.
-     
+#
+#  Modified:
+#     16th Oct 2024. Added an explicit -lpthread for systems that
+#                    still need it. KS.
+
 Target : Median Median.spv
 
-LIBRARIES = -lvulkan -lcfitsio
+LIBRARIES = -lvulkan -lcfitsio -lpthread
 
 INCLUDES =
 

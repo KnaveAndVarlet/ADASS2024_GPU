@@ -18,7 +18,8 @@ kernel void adder(device float *in [[ buffer(1) ]],
     //  the array and store it in the output array. Note we have to work out the index into
     //  the buffer - we can't access it as an element of a 2D array.
     
-
-    uint index = index2.y * gridSize.x + index2.x;
-    out[index] = in[index] + index2.y + index2.x;
+    uint nx = gridSize.x;
+    uint ix = index2.x;
+    uint iy = index2.y;
+    out[iy * nx + ix] = in[iy * nx + ix] + iy + ix;
 }

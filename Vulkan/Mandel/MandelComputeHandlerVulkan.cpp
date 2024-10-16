@@ -30,6 +30,8 @@
 //     27 Aug 2024. Added Validate parameter to Initialise(). KS.
 //      7 Sep 2024. Moved shaders back into default directory, to match the Metal version. KS.
 //     14 Sep 2024. Modified following renaming of Framework routines and types. KS.
+//     16 Oct 2024. Belatedly modified to use new and delete[] instead of a C99 dynamic array
+//                  to keep track of threads in CPU code. KS.
 
 #include "MandelComputeHandlerVulkan.h"
 
@@ -421,7 +423,7 @@ void MandelComputeHandler::ComputeInCThreads (
     int nThreads = std::thread::hardware_concurrency();
     if (nThreads <= 0) nThreads = 1;
 
-    std::thread threads[64];
+    std::thread* threads = new std::thread[nThreads];
     int iY = 0;
     int iYinc = Ny / nThreads;
     for (int iThread = 0; iThread < nThreads; iThread++) {
@@ -432,6 +434,8 @@ void MandelComputeHandler::ComputeInCThreads (
     for (int iThread = 0; iThread < nThreads; iThread++) {
         threads[iThread].join();
     }
+    delete[] threads;
+    
     if (iY < Ny) {
         ComputeRangeInC(Data,Nx,Ny,iY,Ny,Xcent,Ycent,Dx,Dy,MaxIter);
     }

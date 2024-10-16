@@ -76,7 +76,7 @@
 //  Compile options:
 //      If the pre-processor variable NO_CFITSIO is defined, this will be built without using
 //      the Cfitsio FITS library. This version will not be able to read or write FITS files,
-//      and so will just use a dummt array.
+//      and so will just use a dummy array.
 //
 //  History:
 //      14th Aug 2024. First fully commented version. KS.
@@ -91,6 +91,9 @@
 //       6th Oct 2024. Now uses new and delete[] instead of a C99 dynamic array to keep track
 //                     of threads in CPU code. KS.
 //       8th Oct 2024. Can now be built without Cfitsio. KS.
+//      15th Oct 2024. Added SyncBuffer() calls so this works if buffers are staged. The setup
+//                     GPU code still makes them shared, but this makes the code work if the
+//                     setup code is modified experimentally to make them staged. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -481,7 +484,9 @@ void ComputeUsingGPU(int Nx,int Ny,int Npix,int Nrpt,bool Validate,const std::st
     //  to both the GPU and the CPU (since we need to use the CPU to set its initial values.)
     //  To set the contents of the buffer using the CPU, we need the address the CPU can use
     //  for this buffer, which we get by mapping it. Then we can initialise the buffer, using
-    //  a call to SetInputArray().
+    //  a call to SetInputArray(). We could use "STAGED_CPU" instead of "SHARED", which sets up
+    //  a CPU-local buffer and a GPU-local buffer which have to be explicitly synched. This may
+    //  provide better performance with some discrete GPUs.
     
     int Length = Nx * Ny * sizeof(float);
     KVVulkanFramework::KVBufferHandle InputBufferHndl;
@@ -495,11 +500,13 @@ void ComputeUsingGPU(int Nx,int Ny,int Npix,int Nrpt,bool Validate,const std::st
     
     //  And now a device buffer for the output data array. This is essentially the same as for
     //  the input buffer. This will have to be accessed on the CPU side by CheckResults(),
-    //  so we use CreateRowAddrs() to set up for this.
+    //  so we use CreateRowAddrs() to set up for this. (Here, "SHARED" could be replaced by
+    //  "STAGED_GPU" for buffers that need explicit synch, as the GPU creates the data that
+    //  then has to be copied to the CPU.)
     
     KVVulkanFramework::KVBufferHandle OutputBufferHndl;
     OutputBufferHndl = Framework.SetBufferDetails(C_OutputBufferBinding,"STORAGE",
-                                                  "SHARED",StatusOK);
+                                                                            "SHARED",StatusOK);
     Framework.CreateBuffer(OutputBufferHndl,Length,StatusOK);
     float* OutputBufferAddr = (float*)Framework.MapBuffer(OutputBufferHndl,&Bytes,StatusOK);
     OutputArray = CreateRowAddrs(OutputBufferAddr,Nx,Ny);
@@ -585,7 +592,10 @@ void ComputeUsingGPU(int Nx,int Ny,int Npix,int Nrpt,bool Validate,const std::st
         Nrpt = 0;
     }
     
-    //  This sets up the pipeline for the GPU calculation and runs it.
+    //  This sets up the pipeline for the GPU calculation and runs it. Basically, we have to
+    //  record the command buffer - command buffers are 'use once' - and run it. If we have
+    //  staged buffers, they need to be synch'ed - the SyncBuffer() calls are null operations
+    //  for shared buffers.
     
     MsecTimer ComputeTimer;
     
@@ -593,12 +603,17 @@ void ComputeUsingGPU(int Nx,int Ny,int Npix,int Nrpt,bool Validate,const std::st
         
         MsecTimer LoopTimer;
         
+        Framework.SyncBuffer(InputBufferHndl,CommandPool,ComputeQueue,StatusOK);
+
         Framework.RecordComputeCommandBuffer(CommandBuffer,ComputePipeline,
                                   ComputePipelineLayout,&DescriptorSet,WorkGroupCounts,StatusOK);
         TheDebugHandler.Logf("Timing","Command buffer recorded at %.3f msec",
                              LoopTimer.ElapsedMsec());
         
         Framework.RunCommandBuffer(ComputeQueue,CommandBuffer,StatusOK);
+        
+        Framework.SyncBuffer(OutputBufferHndl,CommandPool,ComputeQueue,StatusOK);
+
         TheDebugHandler.Logf("Timing","Compute complete at %.3f msec",LoopTimer.ElapsedMsec());
         if (!StatusOK) break;
     }

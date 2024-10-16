@@ -86,6 +86,8 @@
 //                     Vulkan version. KS.
 //      10th Sep 2024. Further slight tweaks to disgnostics. KS.
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
+//      14th Oct 2024. Modified initial values for input array to make the test of the
+//                     results more stringent. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -623,7 +625,7 @@ void SetInputArray(float** InputArray,int Nx,int Ny)
     
     for (int Iy = 0; Iy < Ny; Iy++) {
         for (int Ix = 0; Ix < Nx; Ix++) {
-            InputArray[Iy][Ix] = float(Ny - Iy + Nx - Ix);
+            InputArray[Iy][Ix] = float(Ny + Iy + Iy + Nx - Ix - Ix);
         }
     }
 }
@@ -768,4 +770,13 @@ std::string DebugArgHelper::HelpText(void)
         of this code, where the problem is complicated by the use of two separate debug handlers,
         one top-level and one burried in the Vulkan-specific framework the code uses. The code
         used here is rather simpler.
+ 
+    o   Amazingly, it took me ages to realise that SetInputArray was setting each element of
+        the test array to a constant value minus the sum of the array indices. This meant that
+        if the program worked properly, adding the sum of the array indices, all the values in
+        the output array would have that same constant value! Code that got the first element
+        right and then set the rest of the output array to the same value would have passed.
+        Not a serious mistake, but it really confused me when I modified the code experimentally
+        and then wondered why all the elements seemed the same when I dumped the results as a
+        diagnostic.
 */

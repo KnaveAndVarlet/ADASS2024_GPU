@@ -61,6 +61,8 @@
 //                    clear this isn't a standard part of Vulkan. Added formal copyright text. KS.
 //      3rd Oct 2024. Corrected careless use of nullptr instead of VK_NULL_HANDLE in a couple
 //                    of places in the pipeline code. KS.
+//     16th Oct 2024. Commented out tests for some memory properties which seem to be undefined
+//                    by at least one Vulkan implementation used for testing. KS.
 //
 //  Copyright (c) Knave and Varlet (K&V), (2024).
 //  Significant portions of this code are based closely on code from the Vulkan-tutorial website,
@@ -2681,9 +2683,11 @@ void KVVulkanFramework::ListMemoryProperties(const VkPhysicalDeviceMemoryPropert
         if (Flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) FlagString += "HostCached ";
         if (Flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) FlagString += "LazilyAllocated ";
         if (Flags & VK_MEMORY_PROPERTY_PROTECTED_BIT) FlagString += "PropertyProtected ";
+        /* Support for these seems to vary, so for now the safe thing to do is comment them out.
         if (Flags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD) FlagString += "DeviceCoherentAMD ";
         if (Flags & VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD) FlagString += "DeviceUncachedAMD ";
         if (Flags & VK_MEMORY_PROPERTY_RDMA_CAPABLE_BIT_NV) FlagString += "RDMACapableNV ";
+        */
         I_Debug.Logf ("Properties","Type %d Heap %d %s",Type,
                                        Properties->memoryTypes[Type].heapIndex,FlagString.c_str());
     }
