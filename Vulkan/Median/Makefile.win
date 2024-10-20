@@ -29,7 +29,12 @@
 #  This can also build a version of Median called Medianx which 
 #  does not use Cfitsio (and so does not have the option of reading
 #  and writing FITS files).
-     
+#
+#  Modified:
+#     18th Oct 2024. Clean no longer deletes .spv files. Cleanup
+#                    does. Clean/Cleanup now delete Medianx files
+#                    as well. KS.
+
 #  This section defines the locations where this Makefile expects to
 #  find the files it uses. These may need to be changed, depending on
 #  where libraries like cfitsio and vulkan have been installed.
@@ -62,8 +67,8 @@ DLLS = cfitsio.dll zlib.dll
 
 Median : Median.exe Median.spv $(DLLS)
 
-#  Medianx builds a version of Median that does not need Cfitsio, but
-#  as a result cannot work with data read from FITS files.
+#  Medianx builds a version of Median that does not need Cfitsio,
+#  but as a result cannot work with data read from FITS files.
 
 Medianx : Medianx.exe Median.spv
 
@@ -112,4 +117,8 @@ zlib.dll :
 	copy $(ZLIB_DIR)\bin\zlib.dll zlib.dll
 
 clean :
-	del Median.exe Median.spv $(OBJ_FILES) $(DLLS) Medianx.exe
+    del Median.exe MedianVulkan.obj \
+        MedianVulkanx.obj $(OBJ_FILES) $(DLLS) Medianx.exe
+cleanup :
+    del Median.exe Median.spv MedianVulkan.obj \
+        MedianVulkanx.obj $(OBJ_FILES) $(DLLS) Medianx.exe

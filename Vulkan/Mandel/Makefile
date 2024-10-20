@@ -21,6 +21,8 @@
 #  Modified:
 #     16th Oct 2024. Added an explicit -lpthread for systems that
 #                    still need it. KS.
+#     18th Oct 2024. Clean no longer deletes .spv files. Cleanup
+#                    does. KS.
 
 LIBRARIES = -lglfw -lvulkan -lpthread
 
@@ -86,4 +88,7 @@ MandelDComp.spv : MandelD.comp
 	glslc MandelD.comp -O -o MandelDComp.spv
 
 clean :
+	@rm -f Mandel $(OBJECTS)
+
+cleanup :
 	@rm -f Mandel $(SHADERS) $(OBJECTS)

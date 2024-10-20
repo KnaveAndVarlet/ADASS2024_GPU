@@ -21,6 +21,8 @@
 #  Modified:
 #     16th Oct 2024. Added an explicit -lpthread for systems that
 #                    still need it. KS.
+#     18th Oct 2024. Clean no longer deletes .spv files. Cleanup
+#                    does. KS.
      
 Target : Adder Adder.spv
 
@@ -57,4 +59,7 @@ Adder.spv : Adder.comp
 	glslc Adder.comp -Os -o Adder.spv
 
 clean :
+	@rm -f Adder $(OBJ_FILES)
+
+cleanup :
 	@rm -f Adder Adder.spv $(OBJ_FILES)
