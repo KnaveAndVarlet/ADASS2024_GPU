@@ -63,6 +63,10 @@
 //                    of places in the pipeline code. KS.
 //     16th Oct 2024. Commented out tests for some memory properties which seem to be undefined
 //                    by at least one Vulkan implementation used for testing. KS.
+//     23rd Oct 2024. One older system took significant time getting the instance properties.
+//                    This has been disabled unless these are going to be explicitly listed
+//                    for diagnostics. Some tests now have to allow for the possibility that
+//                    the property names are unknown. LogWarning() added. KS.
 //
 //  Copyright (c) Knave and Varlet (K&V), (2024).
 //  Significant portions of this code are based closely on code from the Vulkan-tutorial website,
@@ -424,8 +428,15 @@ void KVVulkanFramework::CreateVulkanInstance (bool& StatusOK)
     std::vector<const char *> EnabledLayers;
     std::vector<const char *> EnabledExtensions;
 
-    //  It helps to know what extensions and layers are available, so first of all, we find out.
+    //  It helps to know what extensions and layers are available. We create property vectors
+    //  for both, but only fill the extensions if debug for "Instance" is enabled. On some systems,
+    //  I've seen it take noticeable time to get this information, and we don't really make
+    //  use of it other than for diagnostics. As an added wrinkle, if we're going to test
+    //  for the portablity extension, we do need to know the extension names.
     
+    std::vector<VkLayerProperties> LayerProperties;
+    std::vector<VkExtensionProperties> ExtensionProperties;
+        
     //  First. the layers. We need to find out how many there are, then allocate space to get
     //  their properties (as a set of VkLayerProperties structures, which includes their names)
     //  and then fill that set of structures. Calling vkEnumerateInstanceLayerProperties()
@@ -438,21 +449,20 @@ void KVVulkanFramework::CreateVulkanInstance (bool& StatusOK)
     
     uint32_t NumberLayers;
     vkEnumerateInstanceLayerProperties(&NumberLayers,nullptr);
-    std::vector<VkLayerProperties> LayerProperties(NumberLayers);
+    LayerProperties.resize(NumberLayers);
     vkEnumerateInstanceLayerProperties(&NumberLayers,LayerProperties.data());
-    if (I_Debug.Active("Instance")) {
-        for (const VkLayerProperties& Property : LayerProperties) {
-            I_Debug.Logf("Instance","Layer: %s",Property.layerName);
-        }
+    for (const VkLayerProperties& Property : LayerProperties) {
+        I_Debug.Logf("Instance","Layer: %s",Property.layerName);
     }
-    
+
     //  Now the same sequence to get the details (including the names) of the extensions.
 
-    uint32_t NumberExtensions;
-    vkEnumerateInstanceExtensionProperties(nullptr,&NumberExtensions,nullptr);
-    std::vector<VkExtensionProperties> ExtensionProperties(NumberExtensions);
-    vkEnumerateInstanceExtensionProperties(nullptr,&NumberExtensions,ExtensionProperties.data());
-    if (I_Debug.Active("Instance")) {
+    if (I_Debug.Active("Instance") || strcmp(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,"")) {
+        uint32_t NumberExtensions;
+        vkEnumerateInstanceExtensionProperties(nullptr,&NumberExtensions,nullptr);
+        ExtensionProperties.resize(NumberExtensions);
+        vkEnumerateInstanceExtensionProperties(nullptr,&NumberExtensions,
+                                                               ExtensionProperties.data());
         for (const VkExtensionProperties& Property : ExtensionProperties) {
             I_Debug.Logf("Instance","Extension: %s",Property.extensionName);
         }
@@ -496,32 +506,40 @@ void KVVulkanFramework::CreateVulkanInstance (bool& StatusOK)
     
     if (EnableDiagnostics) {
         
-        //  If we are enabling diagnostics, we will aim to use the VK_LAYER_KHRONOS_validation
-        //  layer, if it is available. This is described as providing all the useful standard
-        //  validation. If it isn't available should we fail with an error, or warn?**
+        //  If we are enabling diagnostics, we will aim to use the required validation
+        //  layer if it is available. (At the moment, this is VK_LAYER_KHRONOS_validation,
+        //  but this code allows for a number of possible layers to be checked for.)
     
         const std::vector<const char*>& LayerNames = GetDiagnosticLayers();
         for (const char* NamePtr : LayerNames) {
+            bool Found = false;
             for (const VkLayerProperties& Property : LayerProperties) {
                 if (!strcmp(NamePtr,Property.layerName)) {
                     EnabledLayers.push_back(NamePtr);
-                    break;
+                    Found = true;
                 }
             }
+            if (!Found) LogWarning("'%s' not found in instance layer properties",NamePtr);
         }
 
         //  The extension VK_EXT_debug_utils allows you to register callbacks that will receive
         //  debugging information when things go wrong. Some earlier code used VK_EXT_debug_report,
         //  but VK_EXT_debug_utils is a more recent replacement. If this is available, and if we
-        //  want the overhead of the diagnostics, we enable it. Same thing - if it's not available,
-        //  what do we do?**
+        //  want the overhead of the diagnostics, we enable it. If we have a list of extension
+        //  properties, we can check for it and warn if it's not present.
     
-        for (const VkExtensionProperties& Property : ExtensionProperties) {
-            if (!strcmp(VK_EXT_DEBUG_UTILS_EXTENSION_NAME,Property.extensionName)) {
-                EnabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-                break;
+        if (ExtensionProperties.size() > 0) {
+            bool Found = false;
+            for (const VkExtensionProperties& Property : ExtensionProperties) {
+                if (!strcmp(VK_EXT_DEBUG_UTILS_EXTENSION_NAME,Property.extensionName)) {
+                    Found = true;
+                    break;
+                }
             }
+            if (!Found) LogWarning("'%s' not found in instance extensions.",
+                                                      VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
+        EnabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
         //  Now for the slight wrinkle. Getting diagnostics out of the system using the
         //  VK_EXT_debug_utils extension normally makes use of a VkDebugUtilsMessengerEXT object,
@@ -577,7 +595,8 @@ void KVVulkanFramework::CreateVulkanInstance (bool& StatusOK)
         //  We can't just call the routine that creates the VkDebugUtilsMessengerEXT object
         //  because it's an extension. So we have to find the routine to call, and then call it.
         
-        auto Function = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(I_Instance, "vkCreateDebugUtilsMessengerEXT");
+        auto Function = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(
+                                                I_Instance, "vkCreateDebugUtilsMessengerEXT");
         if (Function != nullptr) {
             
             //  If EnableDiagnostics is set, we already have the DebugInfo structure set up
@@ -3344,6 +3363,27 @@ void KVVulkanFramework::LogError (const char* const Format, ...)
     vsnprintf (Message,sizeof(Message),Format,Args);
     cerr << "[" << I_Debug.GetSubSystem() << "] *** Error: " << Message << " ***\n";
     I_ErrorFlagged = true;
+}
+
+//  ------------------------------------------------------------------------------------------------
+//
+//                               L o g  W a r n i n g      (internal routine)
+//
+//  Logs a warning message, formatting it like printf(). The supplied message will be formatted and
+//  output, with a new line character appended.
+//
+//  Parameters:
+//     Format        (const char* const) A printf() style formatting string. This can be followed
+//                   by a variable number of additional arguments as required.
+
+
+void KVVulkanFramework::LogWarning (const char* const Format, ...)
+{
+    char Message[1024];
+    va_list Args;
+    va_start (Args,Format);
+    vsnprintf (Message,sizeof(Message),Format,Args);
+    cerr << "[" << I_Debug.GetSubSystem() << "] * Warning: " << Message << " *\n";
 }
 
 //  ------------------------------------------------------------------------------------------------

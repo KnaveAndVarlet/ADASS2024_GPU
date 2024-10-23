@@ -45,6 +45,7 @@
 //      6th Sep 2024. Introduced DrawGraphicsFrame(). KS.
 //     14th Sep 2024. Renamed to from VulkanFramework to KVVulkanFramework, which should make it
 //                    clear this isn't a standard part of Vulkan. Added formal copyright text. KS.
+//     23rd Oct 2024. Added LogWarning(). KS.
 //
 //  Copyright (c) Knave and Varlet (K&V), (2024).
 //  Significant portions of this code are based closely on code from the Vulkan-tutorial website,
@@ -323,6 +324,8 @@ private:
         void* UserData);
     //  Logs a formatted error message
     void LogError (const char* const Format, ...);
+    //  Logs a formatted warning message
+    void LogWarning (const char* const Format, ...);
     //  Logs an error message from the Vulkan validation layers, if enabled.
     void LogValidationError(const char* Message);
     //  Logs a warning message from the Vulkan validation layers, if enabled.

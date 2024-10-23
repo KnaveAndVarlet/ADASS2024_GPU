@@ -93,7 +93,7 @@
 //                     help requests) and to debug output. KS.
 //      15th Aug 2024. Introduced the use of a debug argument helper. KS.
 //      26th Aug 2024. Made Validate true by default. KS.
-//      10th Sep 2024. Slight tweaks to disgnostics. KS.
+//      10th Sep 2024. Slight tweaks to diagnostics. KS.
 //      14th Sep 2024. Modified following renaming of Framework routines and types. KS.
 //      27th Sep 2024. CPU and GPU times now reported even if results prove to be wrong. KS.
 //       3rd Oct 2024. Use of variable length dynamic arrays replaced by new and delete in
@@ -103,6 +103,7 @@
 //      15th Oct 2024. Added SyncBuffer() calls so this works if buffers are staged. The setup
 //                     GPU code still makes them shared, but this makes the code work if the
 //                     setup code is modified experimentally to make them staged. KS.
+//      21st Oct 2024. Added programming note about command buffer re-use. KS.
 
 //  ------------------------------------------------------------------------------------------------
 //
@@ -300,6 +301,7 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
     Framework.SetDebugLevels(DebugLevels);
     Framework.EnableValidation(Validate);
     Framework.CreateVulkanInstance(StatusOK);
+    TheDebugHandler.Logf("Setup","Vulkan instance created at %.3f msec",SetupTimer.ElapsedMsec());
     Framework.FindSuitableDevice(StatusOK);
     Framework.CreateLogicalDevice(StatusOK);
     TheDebugHandler.Logf("Setup","GPU device created at %.3f msec",SetupTimer.ElapsedMsec());
@@ -392,7 +394,9 @@ void ComputeUsingGPU(int Nx,int Ny,int Nrpt,bool Validate,const std::string& Deb
     
     VkQueue ComputeQueue;
     Framework.GetDeviceQueue(&ComputeQueue,StatusOK);
-    
+    TheDebugHandler.Logf("Setup","GPU compute queue for adder created at %.3f msec",
+                                                               SetupTimer.ElapsedMsec());
+
     //  And the command pool and command buffer
     
     VkCommandPool CommandPool;
@@ -792,5 +796,12 @@ std::string DebugArgHelper::HelpText(void)
         Not a serious mistake, but it really confused me when I modified the code experimentally
         and then wondered why all the elements seemed the same when I dumped the results as a
         diagnostic.
+ 
+    o   This code reuses its command buffers while the Metal version doesn't. This works because
+        a) KVVulkanFramework::CreateCommandPool() explicitly sets the flag that allows command
+        buffer re-use (which may intoduce some overheads), and b) the code always waits for the
+        command buffer to finish executing before being re-used. It would be potentially more
+        flexible to create the command buffer inside the repeat loop and not let the Framework
+        set the re-use flag (which maybe marginally more efficient).
 
  */
