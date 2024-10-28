@@ -1,9 +1,25 @@
-// From:
-// Note the magic invocation:
-// xcrun -sdk macosx metal -c median.metal -o median.air
-// xcrun -sdk macosx metallib median.air -o compute.metallib
+//
+//                          M e d i a n . m e t a l
+//
+//  This Metal code passes a median filter through a 2D image.
+//  A conceptual box is drawn around each element of the image,
+//  and the corresponding element of the output image is set
+//  to the median value in the box.
+//
+//  Note the magic invocation to build this:
+//  xcrun -sdk macosx metal -c median.metal -o median.air
+//  xcrun -sdk macosx metallib median.air -o compute.metallib
+//
+//  Modified:
+//     27th Oct 2024. Comments expanded. KS.
+
 #include <metal_stdlib>
 using namespace metal;
+
+//  A MedianArgs structure is used to pass the dimensions of the
+//  filter box. This allows for a rectangular box, with different
+//  X and Y dimensions, but in fact this code uses a square box
+//  Npix by Npix and sets Npix to the specified xsize value.
 
 struct MedianArgs {
     uint xsize;
@@ -73,7 +89,7 @@ kernel void Median(const device float *inputImage [[ buffer(0) ]],
   uint nx = gridSize.x;
   
   //  In order to fit the work into workgroups, some unnecessary threads are launched.
-  //  We terminate those threads here.
+  //  We terminate those threads here. (Metal doesn't need this, but Vulkan does.)
   
   // if(ix >= nx || iy >= ny) return;
 
